@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AUREX Platform</title>
+    <!-- استدعاء مكتبة تليجرام WebApp -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        /* المتغيرات اللونية */
+        :root {
+            --gold-primary: #d4af37;
+            --gold-light: #fdf5e6;
+            --red-dark: #7a1b1b;
+            --red-glow: #a81c1c;
+            --bg-dark: #0d0d0d;
+            --card-bg: #1a1a1a;
+        }
+
+        body {
+            background-color: var(--bg-dark);
+            color: white;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            text-align: center;
+        }
+
+        /* الجزء العلوي والشعار */
+        .header {
+            margin-bottom: 25px;
+        }
+
+        /* تصميم شعار AUREX الذهبي اللامع */
+        .aurex-logo {
+            font-size: 52px;
+            font-weight: 900;
+            font-family: 'Arial Black', sans-serif;
+            text-transform: uppercase;
+            letter-spacing: 6px;
+            margin: 0;
+            
+            /* التدرج المائي لمعدن الذهب */
+            background: linear-gradient(
+                to right,
+                #b8860b 0%,
+                #ffd700 20%,
+                #fff8dc 40%,
+                #ffd700 60%,
+                #b8860b 100%
+            );
+            background-size: 200% auto;
+            
+            color: #000;
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            
+            /* ظل 3D بارز خلف الكلمة */
+            filter: drop-shadow(0px 6px 8px rgba(0, 0, 0, 0.9));
+            
+            /* حركة انزلاق اللمعة */
+            animation: shine-gold 3s linear infinite;
+        }
+
+        @keyframes shine-gold {
+            to {
+                background-position: 200% center;
+            }
+        }
+
+        .platform-subtitle {
+            color: var(--gold-primary);
+            font-size: 13px;
+            letter-spacing: 3px;
+            margin-top: 5px;
+            text-transform: uppercase;
+            opacity: 0.85;
+        }
+
+        /* بطاقة معلومات اللاعب */
+        .user-info {
+            background: linear-gradient(135deg, var(--red-dark), #3a0505);
+            border: 1px solid var(--gold-primary);
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 20px rgba(122, 27, 27, 0.5);
+            font-size: 18px;
+        }
+
+        .user-info span {
+            color: var(--gold-primary);
+            font-weight: bold;
+            font-size: 20px;
+        }
+
+        /* شبكة الألعاب */
+        .games-container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .game-card {
+            background-color: var(--card-bg);
+            border: 2px solid var(--gold-primary);
+            border-radius: 16px;
+            padding: 20px;
+            box-shadow: 0 0 10px rgba(212, 175, 55, 0.1);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .game-card:active {
+            transform: scale(0.97);
+            box-shadow: 0 0 25px rgba(212, 175, 55, 0.4);
+        }
+
+        .game-icon {
+            font-size: 50px;
+            margin-bottom: 10px;
+        }
+
+        .game-title {
+            color: var(--gold-light);
+            font-size: 24px;
+            margin: 0 0 8px 0;
+        }
+
+        .game-desc {
+            color: #aaa;
+            font-size: 14px;
+            margin-bottom: 20px;
+            line-height: 1.5;
+        }
+
+        .play-btn {
+            background-color: var(--red-dark);
+            color: var(--gold-light);
+            border: 2px solid var(--gold-primary);
+            padding: 12px 0;
+            font-size: 18px;
+            border-radius: 30px;
+            cursor: pointer;
+            font-weight: bold;
+            width: 100%;
+            transition: background-color 0.2s;
+            text-transform: uppercase;
+        }
+
+        .play-btn:active {
+            background-color: var(--red-glow);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- الشعار الذهبي AUREX -->
+    <div class="header">
+        <h1 class="aurex-logo">AUREX</h1>
+        <div class="platform-subtitle">PREMIUM GAMES PLATFORM</div>
+    </div>
+
+    <!-- الترحيب بالمستخدم -->
+    <div class="user-info">
+        مرحباً بك، <span id="userName">لاعب</span>!
+    </div>
+
+    <!-- قائمة الألعاب -->
+    <div class="games-container">
+        
+        <!-- اللعبة الأولى -->
+        <div class="game-card">
+            <div class="game-icon">🎰</div>
+            <h2 class="game-title">Golden Lera 2026</h2>
+            <p class="game-desc">لعبة الحظ الكلاسيكية. راهن بذكاء واربح الجوائز الكبرى.</p>
+            <button class="play-btn" onclick="window.location.href='/game1'">دخول اللعبة</button>
+        </div>
+
+        <!-- اللعبة الثانية -->
+        <div class="game-card">
+            <div class="game-icon">🎡</div>
+            <h2 class="game-title">عجلة الحظ</h2>
+            <p class="game-desc">أدر العجلة التفاعلية وجرب حظك لربح أرصدة مضاعفة.</p>
+            <button class="play-btn" onclick="window.location.href='/wheel'">دخول اللعبة</button>
+        </div>
+
+    </div>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        
+        // ضبط إعدادات الواجهة مع تليجرام
+        tg.expand();
+        tg.setHeaderColor('#0d0d0d');
+
+        // جلب اسم اللاعب من التليجرام تلقائياً
+        if (tg.initDataUnsafe && tg.initDataUnsafe.user) {
+            document.getElementById('userName').innerText = tg.initDataUnsafe.user.first_name;
+        }
+    </script>
+
+</body>
+</html>
