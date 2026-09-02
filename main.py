@@ -34,12 +34,12 @@ async def handle_spin_api(request):
     if not user or user['wheel_spins'] <= 0:
         return web.json_response({'success': False, 'message': 'لا تملك لفات مجانية حالياً!'})
 
-    probs_str = db_query("SELECT value FROM settings WHERE key = 'wheel_prob'", fetchone=True)['value']
+    res = db_query("SELECT value FROM settings WHERE key = 'wheel_prob'", fetchone=True)
+    probs_str = res['value'] if res else '[30.0, 25.0, 20.0, 10.0, 8.0, 5.0, 1.8, 0.19, 0.01]'
     probs = json.loads(probs_str)
 
     prize = random.choices(WHEEL_VALUES, weights=probs, k=1)[0]
     
-    # تحديث البيانات
     db_query("UPDATE users SET wheel_spins = wheel_spins - 1, bot_balance = bot_balance + ? WHERE user_id = ?", (prize, user_id), commit=True)
     return web.json_response({'success': True, 'prize': prize})
 
@@ -54,7 +54,8 @@ async def check_admin(user_id, role_needed='limited'):
     return False
 
 async def check_sub(bot, user_id):
-    ch = db_query("SELECT value FROM settings WHERE key = 'mandatory_channel'", fetchone=True)['value']
+    res = db_query("SELECT value FROM settings WHERE key = 'mandatory_channel'", fetchone=True)
+    ch = res['value'] if res else ''
     if not ch: return True
     try:
         member = await bot.get_chat_member(chat_id=ch, user_id=user_id)
@@ -69,8 +70,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     args = context.args
 
-    # التحقق من وضع الصيانة
-    maint = db_query("SELECT value FROM settings WHERE key = 'maintenance'", fetchone=True)['value']
+    maint_res = db_query("SELECT value FROM settings WHERE key = 'maintenance'", fetchone=True)
+    maint = maint_res['value'] if maint_res else '0'
     if maint == '1' and not await check_admin(user_id):
         await update.message.reply_text("⚠️ البوت حالياً في وضع الصيانة. يرجى الانتظار لحين الانتهاء.")
         return ConversationHandler.END
@@ -82,23 +83,22 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db_query("INSERT INTO users (user_id, full_name, username, referred_by) VALUES (?, ?, ?, ?)",
                  (user_id, update.effective_user.full_name, update.effective_user.username, ref_by), commit=True)
         
-        # حماية من الرشق - اختبار الكابتشا
         num1, num2 = random.randint(1, 9), random.randint(1, 9)
         context.user_data['captcha_res'] = num1 + num2
-        await update.message.reply_text(f"🔒 **اختبار الحماية ضد الرشق:**\nرجاءً قم بحل الإجابة الصحيحة للبدء:\nكم يساوي `{num1} + {num2}`؟")
+        await update.message.reply_text(f"🔒 **اختبار الحماية ضد الرشق:**\nرجاءً قم بحل الإجابة الصحيحة للبدء:\nكم يساوي `{num1} + {num2}`؟", parse_mode="Markdown")
         return CAPTCHA
 
     if not user['is_verified']:
         num1, num2 = random.randint(1, 9), random.randint(1, 9)
         context.user_data['captcha_res'] = num1 + num2
-        await update.message.reply_text(f"🔒 **اختبار الحماية ضد الرشق:**\nكم يساوي `{num1} + {num2}`؟")
+        await update.message.reply_text(f"🔒 **اختبار الحماية ضد الرشق:**\nكم يساوي `{num1} + {num2}`؟", parse_mode="Markdown")
         return CAPTCHA
 
     return await show_main_menu(update, context)
 
 async def handle_captcha(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
-    if text.isdigit() and int(text) == context.user_data.get('captcha_res'):
+    if text and text.isdigit() and int(text) == context.user_data.get('captcha_res'):
         kb = [[KeyboardButton("📱 مشاركة رقم الهاتف السوري", request_contact=True)]]
         await update.message.reply_text("✅ إجابة صحيحة! يرجى الآن مشاركة رقم هاتفك السوري حصراً للتحقق (+963):",
                                        reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True, one_time_keyboard=True))
@@ -117,8 +117,8 @@ async def handle_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     phone = contact.phone_number
     db_query("UPDATE users SET phone = ?, is_verified = 1 WHERE user_id = ?", (phone, user_id), commit=True)
 
-    # معالجة البونص الترحيبي والإحالات
-    welcome_bonus = float(db_query("SELECT value FROM settings WHERE key = 'welcome_bonus'", fetchone=True)['value'])
+    wb_res = db_query("SELECT value FROM settings WHERE key = 'welcome_bonus'", fetchone=True)
+    welcome_bonus = float(wb_res['value']) if wb_res else 0.0
     if welcome_bonus > 0:
         db_query("UPDATE users SET bot_balance = bot_balance + ? WHERE user_id = ?", (welcome_bonus, user_id), commit=True)
 
@@ -127,11 +127,12 @@ async def handle_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ref_id = user['referred_by']
         db_query("UPDATE users SET wheel_spins = wheel_spins + 1, active_referrals = active_referrals + 1 WHERE user_id = ?", (ref_id,), commit=True)
         try:
-            await context.bot.send_message(ref_id, f"🎉 انضم شخص جديد عن طريق رابط الإحالة الخاص بك! حصلت على لفة مجانية في العجلة.")
+            await context.bot.send_message(ref_id, "🎉 انضم شخص جديد عن طريق رابط الإحالة الخاص بك!حصلت على لفة مجانية في العجلة.")
         except Exception: pass
 
-    # إشعار للآدمن
-    await context.bot.send_message(SUPER_ADMIN_ID, f"🔔 **دخول مستخدم جديد:**\nالاسم: {update.effective_user.full_name}\nالرقم: {phone}\nالمُحيل: {user['referred_by'] if user else 'لا يوجد'}")
+    try:
+        await context.bot.send_message(SUPER_ADMIN_ID, f"🔔 **دخول مستخدم جديد:**\nالاسم: {update.effective_user.full_name}\nالرقم: {phone}\nالمُحيل: {user['referred_by'] if user else 'لا يوجد'}")
+    except Exception: pass
 
     await update.message.reply_text("✅ تم التحقق بنجاح من رقمك!", reply_markup=ReplyKeyboardMarkup([[]], remove_keyboard=True))
     return await show_main_menu(update, context)
@@ -139,9 +140,9 @@ async def handle_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
-    # تحقق من الاشتراكات الأجبارية
     if not await check_sub(context.bot, user_id):
-        ch_link = db_query("SELECT value FROM settings WHERE key = 'channel_link'", fetchone=True)['value']
+        ch_res = db_query("SELECT value FROM settings WHERE key = 'channel_link'", fetchone=True)
+        ch_link = ch_res['value'] if ch_res else ''
         await update.effective_message.reply_text(f"⚠️ يجب عليك الاشتراك بقناة البوت أولاً لاستخدامه:\n{ch_link}")
         return
 
@@ -173,7 +174,6 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
 
-# --- معالجة طلب الشحن والسحب ---
 async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -190,7 +190,8 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         method = data.split("_")[1]
         context.user_data['selected_method'] = method
         pm = db_query("SELECT details FROM payment_methods WHERE name = ?", (method,), fetchone=True)
-        await query.message.edit_text(f"💳 **طريقة الشحن {method}:**\n{pm['details']}\n\nرجاءً أدخل المبلغ الذي أرسلته بالسورية/الدولار:")
+        details = pm['details'] if pm else 'تواصل مع الدعم'
+        await query.message.edit_text(f"💳 **طريقة الشحن {method}:**\n{details}\n\nرجاءً أدخل المبلغ الذي أرسلته بالسورية/الدولار:")
         return CHARGE_AMT
 
     elif data == "ref_system":
@@ -200,16 +201,15 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg = (
             f"🔗 **نظام الإحالة المتطور:**\n\n"
             f"شارك هذا الرابط للربح:\n`{link}`\n\n"
-            f"👥 عدد الإحالات النشطة لديك: `{user['active_referrals']}`\n"
+            f"👥 عدد الإحالات النشطة لديك: `{user['active_referrals'] if user else 0}`\n"
             f"🎁 تحصل على لفة مجانية لكل شخص ينشئ حسابه.\n"
-            f"🔥 **نظام الـ 10% حرق:** عند امتلاكك 3 إحالات نشطة، ستحصل على 10% من نسبة حرق مشحونات إحالاتك (تراجع وتقبض يدوي كل 10 أيام من الإدارة)."
+            f"🔥 **نظام الـ 10% حرق:** عند امتلاكك 3 إحالات نشطة، ستحصل على 10% من نسبة حرق مشحونات إحالاتك."
         )
         await query.message.edit_text(msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("رجوع", callback_data="main_menu")]]))
 
     elif data == "main_menu":
         await show_main_menu(update, context)
 
-    # موافقات الإدارة
     elif data.startswith("app_") or data.startswith("rej_"):
         if not await check_admin(query.from_user.id): return
         action, tx_id = data.split("_")
@@ -221,17 +221,22 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if action == "app":
             db_query("UPDATE transactions SET status = 'approved' WHERE id = ?", (tx_id,), commit=True)
             if tx['type'] == 'deposit':
-                bonus_pct = float(db_query("SELECT value FROM settings WHERE key = 'deposit_bonus_pct'", fetchone=True)['value'])
+                bon_res = db_query("SELECT value FROM settings WHERE key = 'deposit_bonus_pct'", fetchone=True)
+                bonus_pct = float(bon_res['value']) if bon_res else 0.0
                 final_amt = tx['amount'] * (1 + bonus_pct / 100.0)
                 db_query("UPDATE users SET bot_balance = bot_balance + ?, total_deposited = total_deposited + ? WHERE user_id = ?",
                          (final_amt, tx['amount'], tx['user_id']), commit=True)
-                await context.bot.send_message(tx['user_id'], f"✅ تم قبول طلب الشحن بمبلغ {tx['amount']}$ (+ بونص {bonus_pct}%)!")
+                try:
+                    await context.bot.send_message(tx['user_id'], f"✅ تم قبول طلب الشحن بمبلغ {tx['amount']}$ (+ بونص {bonus_pct}%)!")
+                except Exception: pass
             
             await query.message.edit_text(f"✅ تم القبول للعملية رقم #{tx_id}")
 
         elif action == "rej":
             db_query("UPDATE transactions SET status = 'rejected' WHERE id = ?", (tx_id,), commit=True)
-            await context.bot.send_message(tx['user_id'], f"❌ تم رفض عملية {tx['type']} رقم #{tx_id}")
+            try:
+                await context.bot.send_message(tx['user_id'], f"❌ تم رفض عملية {tx['type']} رقم #{tx_id}")
+            except Exception: pass
             await query.message.edit_text(f"❌ تم الرفض للعملية رقم #{tx_id}")
 
     elif data == "admin_panel":
@@ -252,29 +257,29 @@ async def receive_charge_amt(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def receive_charge_tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tx_id = update.message.text
     user_id = update.effective_user.id
-    amt = context.user_data['charge_amt']
-    method = context.user_data['selected_method']
+    amt = context.user_data.get('charge_amt', 0)
+    method = context.user_data.get('selected_method', 'غير محدد')
 
     db_query("INSERT INTO transactions (user_id, type, amount, method, account_or_txid) VALUES (?, 'deposit', ?, ?, ?)",
              (user_id, amt, method, tx_id), commit=True)
     
     res = db_query("SELECT last_insert_rowid() as id", fetchone=True)
-    tx_no = res['id']
+    tx_no = res['id'] if res else 0
 
     await update.message.reply_text("✅ تم إرسال طلب الشحن إلى الإدارة للمراجعة والموافقة.")
     
-    # إشعار للإدارة
     kb = [
         [InlineKeyboardButton("✅ موافقة", callback_data=f"app_{tx_no}"), InlineKeyboardButton("❌ رفض", callback_data=f"rej_{tx_no}")]
     ]
-    await context.bot.send_message(
-        SUPER_ADMIN_ID,
-        f"📥 **طلب شحن جديد (# {tx_no}):**\nالمستخدم: `{user_id}`\nالمبلغ: `{amt}`$\nالطريقة: `{method}`\nرقم العملية: `{tx_id}`",
-        reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown"
-    )
+    try:
+        await context.bot.send_message(
+            SUPER_ADMIN_ID,
+            f"📥 **طلب شحن جديد (# {tx_no}):**\nالمستخدم: `{user_id}`\nالمبلغ: `{amt}`$\nالطريقة: `{method}`\nرقم العملية: `{tx_id}`",
+            reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown"
+        )
+    except Exception: pass
     return ConversationHandler.END
 
-# --- لوحة تحكم الإدارة الكاملة ---
 async def show_admin_panel(query):
     kb = [
         [InlineKeyboardButton("⚙️ تفعيل/إلغاء وضع الصيانة", callback_data="adm_maint")],
@@ -287,10 +292,8 @@ async def show_admin_panel(query):
 async def main():
     init_db()
 
-    # إنشاء تطبيق التلجرام
     app = Application.builder().token(BOT_TOKEN).build()
 
-    # إضافة Handlers
     conv = ConversationHandler(
         entry_points=[
             CommandHandler('start', start),
@@ -308,7 +311,6 @@ async def main():
     app.add_handler(conv)
     app.add_handler(CallbackQueryHandler(handle_callbacks))
 
-    # تهيئة تطبيق aiohttp ليعمل كسيرفر متكامل على Render
     web_app = web.Application()
     aiohttp_jinja2.setup(web_app, loader=jinja2.FileSystemLoader('templates'))
 
@@ -323,13 +325,11 @@ async def main():
 
     logging.info(f"Web server active on port {PORT}")
 
-    # بدء البوت بالتوازي
-    await app.initialize()
-    await app.start()
-    await app.updater.start_polling()
-
-    # الحفاظ على الجلسة شغال
-    await asyncio.Event().wait()
+    # استخدام Async Context Manager لإدارة سياق البوت بشكل سليم ودون أخطاء
+    async with app:
+        await app.start()
+        await app.updater.start_polling()
+        await asyncio.Event().wait()
 
 if __name__ == '__main__':
     asyncio.run(main())
