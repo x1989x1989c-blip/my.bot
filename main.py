@@ -6,19 +6,19 @@ import re
 from aiohttp import web
 import jinja2
 import aiohttp_jinja2
-from telegram import (
-    Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove,
-    InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
-)
+from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, CallbackQueryHandler,
     ContextTypes, filters, ConversationHandler
 )
 
-from config import BOT_TOKEN, SUPER_ADMIN_ID, PORT, WEBAPP_URL, WHEEL_VALUES
+from config import BOT_TOKEN, SUPER_ADMIN_ID, PORT, WHEEL_VALUES
 from database import init_db, db_query
 
 logging.basicConfig(level=logging.INFO)
+
+# رابط سيرفر الـ Web App لعجلة الحظ
+SERVER_WHEEL_URL = "https://my-bot-j48l.onrender.com/wheel"
 
 # --- تعريف كافة الحالات لـ ConversationHandler ---
 (
@@ -31,17 +31,16 @@ logging.basicConfig(level=logging.INFO)
     ADMIN_METHOD_DETAILS, ADMIN_METHOD_DEL, ADMIN_WEL_BONUS, ADMIN_DEP_BONUS,
     ADMIN_WHEEL_PROBS, ADMIN_OFFER_TITLE, ADMIN_OFFER_TEXT, ADMIN_SET_CHANNEL,
     ADMIN_BAN_USER, ADMIN_UNBAN_USER, ADMIN_ADD_ADMIN_ID, ADMIN_ADD_ADMIN_ROLE,
-    ADMIN_REM_ADMIN_ID, ADMIN_REPLY_USER, ADMIN_REPLY_TEXT
-) = range(39)
+    ADMIN_REM_ADMIN_ID, ADMIN_REPLY_USER, ADMIN_REPLY_TEXT,
+    ICHANCY_USER_INPUT, ICHANCY_PASS_INPUT
+) = range(41)
 
 # --- دالة التحقق المرنة والشاملة من الرقم السوري ---
 def parse_syrian_phone(text: str) -> str | None:
     if not text:
         return None
-    # استخراج كافة الأرقام فقط وتجاهل الرموز والمسافات
     digits = "".join(c for c in text if c.isdigit())
     
-    # إزالة صيغ فتح الخط الدولي والبادئات المختلفة
     if digits.startswith("00963"):
         digits = digits[5:]
     elif digits.startswith("963"):
@@ -50,7 +49,6 @@ def parse_syrian_phone(text: str) -> str | None:
     if digits.startswith("0"):
         digits = digits[1:]
         
-    # الرقم السوري المحمول يتكون من 9 أرقام ويبدأ بالرقم 9 (مثال: 962840363)
     if len(digits) == 9 and digits.startswith("9"):
         return "+963" + digits
     return None
@@ -150,7 +148,7 @@ async def handle_captcha(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ إجابة خاطئة! أعد المحاولة:")
         return CAPTCHA
 
-# --- استلام وتأكيد الرقم السوري وانشاء حساب iChancy ---
+# --- استلام وتأكيد الرقم السوري ---
 async def handle_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     raw_input = ""
@@ -164,19 +162,15 @@ async def handle_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ رقم سوري غير صالح! أرسل رقماً يبدأ بـ 09 أو استخدم زر المشاركة.")
         return PHONE
 
-    ichancy_u = f"ich_{user_id}"
-    ichancy_p = f"pass_{random.randint(100000, 999999)}"
-
     wb_res = db_query("SELECT value FROM settings WHERE key = 'welcome_bonus'", fetchone=True)
     try:
         welcome_bonus = float(wb_res['value']) if wb_res and wb_res['value'] else 0.0
     except ValueError:
         welcome_bonus = 0.0
 
-    # إعطاء 1 لفة مجانية أوتوماتيكياً عند تخطي إنشاء الحساب والبونص الترحيبي
-    db_query("""UPDATE users SET phone = ?, is_verified = 1, ichancy_user = ?, ichancy_pass = ?, 
-                bot_balance = bot_balance + ?, wheel_spins = wheel_spins + 1 WHERE user_id = ?""",
-             (phone, ichancy_u, ichancy_p, welcome_bonus, user_id), commit=True)
+    # إعداد وتأكيد رقم الهاتف دون إنشاء حساب ichancy تلقائياً
+    db_query("""UPDATE users SET phone = ?, is_verified = 1, bot_balance = bot_balance + ? WHERE user_id = ?""",
+             (phone, welcome_bonus, user_id), commit=True)
 
     user = db_query("SELECT referred_by FROM users WHERE user_id = ?", (user_id,), fetchone=True)
     ref_id = user['referred_by'] if user else None
@@ -187,7 +181,6 @@ async def handle_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(ref_id, "🎉 انضم شخص جديد عن طريق رابط الإحالة الخاص بك! حصلت على لفة مجانية.")
         except Exception: pass
 
-    # إشعارات الإدارة بالدخول والتسجيل
     try:
         ref_txt = f"`{ref_id}`" if ref_id else "مباشر بدون إحالة"
         await context.bot.send_message(SUPER_ADMIN_ID, 
@@ -195,11 +188,10 @@ async def handle_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"👤 الاسم: {update.effective_user.full_name}\n"
             f"🆔 ID: `{user_id}`\n"
             f"📱 الرقم: `{phone}`\n"
-            f"🎮 حساب iChancy: `{ichancy_u}`\n"
             f"🔗 المُحيل: {ref_txt}", parse_mode="Markdown")
     except Exception: pass
 
-    await update.message.reply_text("✅ تم إنشاء وتفعيل حسابك بنجاح! حصلت على 1 لفة مجانية بالعجلة.", reply_markup=ReplyKeyboardRemove())
+    await update.message.reply_text("✅ تم تفعيل رقمك بنجاح! يمكنك الآن إنشاء حساب iChancy من القائمة الرئيسية.", reply_markup=ReplyKeyboardMarkup([[]], remove_keyboard=True))
     return await show_main_menu(update, context)
 
 # --- واجهة لوحة العميل ---
@@ -221,20 +213,27 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not user:
         return ConversationHandler.END
 
+    has_ichancy = bool(user['ichancy_user'])
+
     msg = (
         f"🙋‍♂️ **مرحباً بك {user['full_name']} في لوحة العميل**\n\n"
         f"🆔 معرف الحساب: `{user['user_id']}`\n"
-        f"👤 **حسابي (iChancy):** `{user['ichancy_user']}`\n"
-        f"🔑 **كلمة المرور:** `{user['ichancy_pass']}`\n\n"
-        f"💰 رصيدك في البوت: `{user['bot_balance']:.2f}`$\n"
-        f"🌐 رصيدك في الموقع: `{user['site_balance']:.2f}`$\n"
+        f"💰 رصيدك في البوت: `{user['bot_balance']:.2f}` ل.س\n"
+        f"🌐 رصيدك في الموقع: `{user['site_balance']:.2f}` ل.س\n"
         f"🎡 اللفات المتاحة للعجلة: `{user['wheel_spins']}`\n"
     )
 
+    # زر إنشاء / عرض حساب ichancy
+    if has_ichancy:
+        ichancy_btn = InlineKeyboardButton("👤 حسابي ichancy", callback_data="show_ichancy_acc")
+    else:
+        ichancy_btn = InlineKeyboardButton("✨ إنشاء حساب ichancy", callback_data="create_ichancy_acc")
+
     kb = [
+        [ichancy_btn],
         [InlineKeyboardButton("💳 شحن رصيد للبوت", callback_data="charge_bot"), InlineKeyboardButton("💸 سحب رصيد من البوت", callback_data="withdraw_bot")],
         [InlineKeyboardButton("📥 شحن إلى الموقع", callback_data="site_dep"), InlineKeyboardButton("📤 سحب من الموقع", callback_data="site_with")],
-        [InlineKeyboardButton("🎡 عجلة الحظ (Web App)", web_app=WebAppInfo(url=WEBAPP_URL))],
+        [InlineKeyboardButton("🎡 عجلة الحظ (Web App)", web_app=WebAppInfo(url=SERVER_WHEEL_URL))],
         [InlineKeyboardButton("🔗 نظام الإحالة المتطور", callback_data="ref_system"), InlineKeyboardButton("🎁 ادخال كود هدية", callback_data="enter_gift")],
         [InlineKeyboardButton("💬 مراسلة الدعم", callback_data="contact_support"), InlineKeyboardButton("🚨 إرسال إصابة", callback_data="send_injury")],
         [InlineKeyboardButton("📢 العروض الحالية", callback_data="view_offers")]
@@ -256,6 +255,28 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "check_sub_retry" or data == "main_menu":
         await show_main_menu(update, context)
+
+    elif data == "create_ichancy_acc":
+        user_id = query.from_user.id
+        user = db_query("SELECT ichancy_user FROM users WHERE user_id = ?", (user_id,), fetchone=True)
+        if user and user['ichancy_user']:
+            await query.answer("لديك حساب بالفعل!", show_alert=True)
+            return
+        await query.message.edit_text("✍️ **إنشاء حساب iChancy:**\n\nأدخل اسم المستخدم المطلوب (يجب أن يتكون من 6 أحرف/أرقام بالضبط):")
+        return ICHANCY_USER_INPUT
+
+    elif data == "show_ichancy_acc":
+        user_id = query.from_user.id
+        user = db_query("SELECT ichancy_user, ichancy_pass FROM users WHERE user_id = ?", (user_id,), fetchone=True)
+        if user and user['ichancy_user']:
+            acc_info = (
+                f"🎮 **معلومات حسابك في iChancy:**\n\n"
+                f"👤 اسم المستخدم: `{user['ichancy_user']}`\n"
+                f"🔑 كلمة المرور: `{user['ichancy_pass']}`"
+            )
+            await query.message.edit_text(acc_info, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("رجوع", callback_data="main_menu")]]))
+        else:
+            await query.answer("لم تقم بإنشاء حساب بعد!", show_alert=True)
 
     elif data == "charge_bot":
         methods = db_query("SELECT name FROM payment_methods", fetchall=True)
@@ -296,7 +317,7 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🔗 **نظام الإحالة المتطور:**\n\n"
             f"رابط الإحالة الخاص بك:\n`{link}`\n\n"
             f"👥 عدد إحالاتك النشطة: `{user['active_referrals']}`\n"
-            f"💰 إجمالي مشحونات إحالاتك: `{total_ref_dep:.2f}`$\n"
+            f"💰 إجمالي مشحونات إحالاتك: `{total_ref_dep:.2f}` ل.س\n"
             f"🎡 تحصّل على 1 لفة مجانية لكل شخص يُسجل عن طريقك.\n"
             f"🔥 **ميزة الـ 10% حرق:** عند امتلاك 3 إحالات نشطة، تربح 10% من نسبة حرق المشحونات (تراجع وتقبض يدويًا من الإدارة كل 10 أيام)."
         )
@@ -355,13 +376,13 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
                          (final_amt, tx['amount'], tx['user_id']), commit=True)
                 
                 try:
-                    await context.bot.send_message(tx['user_id'], f"✅ تم قبول طلب الشحن! أضيف لرصيدك `{final_amt:.2f}`$ (تتضمن بونص {tot_pct}%).", parse_mode="Markdown")
+                    await context.bot.send_message(tx['user_id'], f"✅ تم قبول طلب الشحن! أضيف لرصيدك `{final_amt:.2f}` ل.س (تتضمن بونص {tot_pct}%).", parse_mode="Markdown")
                 except Exception: pass
 
             elif tx['type'] == 'withdraw':
                 db_query("UPDATE users SET bot_balance = bot_balance - ? WHERE user_id = ?", (tx['amount'], tx['user_id']), commit=True)
                 try:
-                    await context.bot.send_message(tx['user_id'], f"✅ تم تنفيذ طلب السحب بمبلغ `{tx['amount']:.2f}`$ بنجاح.", parse_mode="Markdown")
+                    await context.bot.send_message(tx['user_id'], f"✅ تم تنفيذ طلب السحب بمبلغ `{tx['amount']:.2f}` ل.س بنجاح.", parse_mode="Markdown")
                 except Exception: pass
 
             await query.message.edit_text(f"✅ تم قبول المعاملة #{tx_id}")
@@ -380,6 +401,36 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("adm_"):
         await handle_admin_callbacks(query, context, data)
 
+# --- استلام اسم مستخدم وكلمة مرور حساب ichancy ---
+async def receive_ichancy_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    if len(text) != 6:
+        await update.message.reply_text("❌ يجب أن يتكون اسم المستخدم من 6 أحرف أو أرقام بالضبط! أعد المحاولة:")
+        return ICHANCY_USER_INPUT
+
+    context.user_data['temp_ichancy_user'] = text
+    await update.message.reply_text("🔑 الآن أدخل كلمة المرور الخاصة بالحساب:")
+    return ICHANCY_PASS_INPUT
+
+async def receive_ichancy_pass(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    pwd = update.message.text.strip()
+    user_id = update.effective_user.id
+    u_name = context.user_data.get('temp_ichancy_user')
+
+    user = db_query("SELECT ichancy_user FROM users WHERE user_id = ?", (user_id,), fetchone=True)
+    
+    if user and not user['ichancy_user']:
+        # عند الإنشاء لأول مرة بشكل يدوي -> إعطاء 1 لفة مجانية
+        db_query("UPDATE users SET ichancy_user = ?, ichancy_pass = ?, wheel_spins = wheel_spins + 1 WHERE user_id = ?",
+                 (u_name, pwd, user_id), commit=True)
+        await update.message.reply_text("✅ تم إنشاء حسابك في iChancy بنجاح! وحصلت على 1 لفة مجانية في عجلة الحظ 🎡")
+    else:
+        db_query("UPDATE users SET ichancy_user = ?, ichancy_pass = ? WHERE user_id = ?",
+                 (u_name, pwd, user_id), commit=True)
+        await update.message.reply_text("✅ تم تحديث بيانات حساب iChancy بنجاح!")
+
+    return await show_main_menu(update, context)
+
 # --- استلام وتطبيق عمليات العميل ---
 async def receive_charge_amt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     numbers = re.findall(r"[-+]?\d*\.\d+|\d+", update.message.text or "")
@@ -387,7 +438,7 @@ async def receive_charge_amt(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("❌ أدخل مبلغ صحيح بالأرقام:")
         return CHARGE_AMT
 
-    amt = float(numbers[0]) # يتلقى أول رقم فقط
+    amt = float(numbers[0])
     context.user_data['charge_amt'] = amt
     await update.message.reply_text("الآن أدخل رقم العملية / التحويل:")
     return CHARGE_TX
@@ -411,7 +462,7 @@ async def receive_charge_tx(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(SUPER_ADMIN_ID,
             f"📥 **طلب شحن جديد (# {tx_no}):**\n"
             f"👤 العميل: `{user_id}`\n"
-            f"💰 المبلغ: `{amt}`$\n"
+            f"💰 المبلغ: `{amt}` ل.س\n"
             f"💳 الطريقة: `{method}`\n"
             f"🔢 رقم العملية: `{tx_id}`",
             reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
@@ -450,7 +501,7 @@ async def receive_withdraw_amt(update: Update, context: ContextTypes.DEFAULT_TYP
         await context.bot.send_message(SUPER_ADMIN_ID,
             f"📤 **طلب سحب جديد (# {tx_no}):**\n"
             f"👤 العميل: `{user_id}`\n"
-            f"💰 المبلغ: `{amt}`$\n"
+            f"💰 المبلغ: `{amt}` ل.س\n"
             f"💳 الحساب: `{acc}`",
             reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
     except Exception: pass
@@ -469,7 +520,7 @@ async def receive_site_dep_amt(update: Update, context: ContextTypes.DEFAULT_TYP
 
     db_query("UPDATE users SET bot_balance = bot_balance - ?, site_balance = site_balance + ? WHERE user_id = ?",
              (amt, amt, user_id), commit=True)
-    await update.message.reply_text(f"✅ تم تحويل `{amt:.2f}`$ بنجاح إلى حسابك في الموقع!", parse_mode="Markdown")
+    await update.message.reply_text(f"✅ تم تحويل `{amt:.2f}` ل.س بنجاح إلى حسابك في الموقع!", parse_mode="Markdown")
     return ConversationHandler.END
 
 async def receive_site_with_amt(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -485,7 +536,7 @@ async def receive_site_with_amt(update: Update, context: ContextTypes.DEFAULT_TY
 
     db_query("UPDATE users SET site_balance = site_balance - ?, bot_balance = bot_balance + ? WHERE user_id = ?",
              (amt, amt, user_id), commit=True)
-    await update.message.reply_text(f"✅ تم تحويل `{amt:.2f}`$ بنجاح إلى رصيد البوت الخاص بك!", parse_mode="Markdown")
+    await update.message.reply_text(f"✅ تم تحويل `{amt:.2f}` ل.س بنجاح إلى رصيد البوت الخاص بك!", parse_mode="Markdown")
     return ConversationHandler.END
 
 async def receive_gift_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -507,9 +558,9 @@ async def receive_gift_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db_query("UPDATE gift_codes SET used_count = used_count + 1 WHERE code = ?", (code_in,), commit=True)
     db_query("INSERT INTO gift_code_logs (code, user_id) VALUES (?, ?)", (code_in, user_id), commit=True)
 
-    await update.message.reply_text(f"🎉 تم استخدام الكود وأُضيفت `{val:.2f}`$ لرصيدك!", parse_mode="Markdown")
+    await update.message.reply_text(f"🎉 تم استخدام الكود وأُضيفت `{val:.2f}` ل.س لرصيدك!", parse_mode="Markdown")
     try:
-        await context.bot.send_message(SUPER_ADMIN_ID, f"🎁 **استخدام كود هدية:**\nالعميل: `{user_id}`\nالكود: `{code_in}`\nالقيمة: `{val}`$")
+        await context.bot.send_message(SUPER_ADMIN_ID, f"🎁 **استخدام كود هدية:**\nالعميل: `{user_id}`\nالكود: `{code_in}`\nالقيمة: `{val}` ل.س")
     except Exception: pass
     return ConversationHandler.END
 
@@ -566,7 +617,7 @@ async def handle_admin_callbacks(query, context, data):
         tot_u = db_query("SELECT COUNT(*) as c FROM users", fetchone=True)['c']
         tot_b = db_query("SELECT SUM(bot_balance) as s FROM users", fetchone=True)['s'] or 0.0
         tot_s = db_query("SELECT SUM(site_balance) as s FROM users", fetchone=True)['s'] or 0.0
-        msg = f"📊 **إحصائيات وأرصدة اللاعبين:**\n\n👥 إجمالي المستخدمين: `{tot_u}`\n💰 إجمالي رصيد البوت: `{tot_b:.2f}`$\n🌐 إجمالي رصيد الموقع: `{tot_s:.2f}`$"
+        msg = f"📊 **إحصائيات وأرصدة اللاعبين:**\n\n👥 إجمالي المستخدمين: `{tot_u}`\n💰 إجمالي رصيد البوت: `{tot_b:.2f}` ل.س\n🌐 إجمالي رصيد الموقع: `{tot_s:.2f}` ل.س"
         await query.message.edit_text(msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("رجوع", callback_data="admin_panel")]]))
 
     elif data == "adm_addbal":
@@ -578,12 +629,12 @@ async def handle_admin_callbacks(query, context, data):
         return ADMIN_DEDUCT_BAL_USER
 
     elif data == "adm_gencode":
-        await query.message.edit_text("أدخل قيمة الكود بالدولار:")
+        await query.message.edit_text("أدخل قيمة الكود بالليرة السورية:")
         return ADMIN_GEN_CODE_VAL
 
     elif data == "adm_listcodes":
         codes = db_query("SELECT * FROM gift_codes WHERE active = 1", fetchall=True)
-        txt = "📋 **الأكواد النشطة:**\n\n" + "\n".join([f"• `{c['code']}` | قيمة: {c['value']}$ | استخدام: {c['used_count']}/{c['max_uses']}" for c in codes]) if codes else "لا توجد أكواد نشطة."
+        txt = "📋 **الأكواد النشطة:**\n\n" + "\n".join([f"• `{c['code']}` | قيمة: {c['value']} ل.س | استخدام: {c['used_count']}/{c['max_uses']}" for c in codes]) if codes else "لا توجد أكواد نشطة."
         await query.message.edit_text(txt, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("رجوع", callback_data="admin_panel")]]))
 
     elif data == "adm_cancelcode":
@@ -607,7 +658,7 @@ async def handle_admin_callbacks(query, context, data):
         return ADMIN_METHOD_DEL
 
     elif data == "adm_welbonus":
-        await query.message.edit_text("أدخل قيمة البونص الترحيبي بالدولار (أو 0 لإلغائه):")
+        await query.message.edit_text("أدخل قيمة البونص الترحيبي بالليرة السورية (أو 0 لإلغائه):")
         return ADMIN_WEL_BONUS
 
     elif data == "adm_depbonus":
@@ -690,11 +741,11 @@ async def process_user_details_search(update: Update, context: ContextTypes.DEFA
         f"👤 الاسم: {user['full_name']}\n"
         f"🆔 ID الحساب: `{user['user_id']}`\n"
         f"📱 الرقم: `{user['phone']}`\n"
-        f"🎮 حساب iChancy: `{user['ichancy_user']}`\n"
-        f"💰 رصيد البوت: `{user['bot_balance']:.2f}`$\n"
-        f"🌐 رصيد الموقع: `{user['site_balance']:.2f}`$\n"
+        f"🎮 حساب iChancy: `{user['ichancy_user'] or 'غير منشأ'}`\n"
+        f"💰 رصيد البوت: `{user['bot_balance']:.2f}` ل.س\n"
+        f"🌐 رصيد الموقع: `{user['site_balance']:.2f}` ل.س\n"
         f"📥 عدد الشحنات: `{deps_cnt}`\n"
-        f"💵 إجمالي المشحون: `{user['total_deposited']:.2f}`$\n"
+        f"💵 إجمالي المشحون: `{user['total_deposited']:.2f}` ل.س\n"
         f"🎁 مرات استخدام الكود: `{codes_cnt}`\n"
         f"👥 عدد الإحالات النشطة: `{user['active_referrals']}`\n"
         f"🎡 لفات العجلة (المتبقية/المستخدمة): `{user['wheel_spins']}/{user['wheel_spins_done']}`\n"
@@ -716,9 +767,9 @@ async def process_admin_add_bal_amt(update: Update, context: ContextTypes.DEFAUL
 
     uid = context.user_data.get('target_user')
     db_query("UPDATE users SET bot_balance = bot_balance + ? WHERE user_id = ?", (amt, uid), commit=True)
-    await update.message.reply_text(f"✅ تم إضافة {amt}$ إلى رصيد المستخدم {uid}")
+    await update.message.reply_text(f"✅ تم إضافة {amt} ل.س إلى رصيد المستخدم {uid}")
     try:
-        await context.bot.send_message(uid, f"🎉 تمت إضافة `{amt}`$ إلى رصيدك من قبل الإدارة.", parse_mode="Markdown")
+        await context.bot.send_message(uid, f"🎉 تمت إضافة `{amt}` ل.س إلى رصيدك من قبل الإدارة.", parse_mode="Markdown")
     except Exception: pass
     return ConversationHandler.END
 
@@ -736,7 +787,7 @@ async def process_admin_deduct_bal_amt(update: Update, context: ContextTypes.DEF
 
     uid = context.user_data.get('target_user')
     db_query("UPDATE users SET bot_balance = bot_balance - ? WHERE user_id = ?", (amt, uid), commit=True)
-    await update.message.reply_text(f"✅ تم خصم {amt}$ من رصيد المستخدم {uid}")
+    await update.message.reply_text(f"✅ تم خصم {amt} ل.س من رصيد المستخدم {uid}")
     return ConversationHandler.END
 
 async def process_admin_gen_code_val(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -811,7 +862,7 @@ async def process_admin_wel_bonus(update: Update, context: ContextTypes.DEFAULT_
         return ADMIN_WEL_BONUS
 
     db_query("UPDATE settings SET value = ? WHERE key = 'welcome_bonus'", (str(val),), commit=True)
-    await update.message.reply_text(f"✅ تم ضبط البونص الترحيبي على {val}$.")
+    await update.message.reply_text(f"✅ تم ضبط البونص الترحيبي على {val} ل.س.")
     return ConversationHandler.END
 
 async def process_admin_dep_bonus(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -947,6 +998,8 @@ async def main():
         states={
             CAPTCHA: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_captcha)],
             PHONE: [MessageHandler((filters.CONTACT | filters.TEXT) & ~filters.COMMAND, handle_phone)],
+            ICHANCY_USER_INPUT: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_ichancy_user)],
+            ICHANCY_PASS_INPUT: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_ichancy_pass)],
             CHARGE_AMT: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_charge_amt)],
             CHARGE_TX: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_charge_tx)],
             WITHDRAW_ACC: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_withdraw_acc)],
