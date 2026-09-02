@@ -6,7 +6,10 @@ import re
 from aiohttp import web
 import jinja2
 import aiohttp_jinja2
-from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
+from telegram import (
+    Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove,
+    InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
+)
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, CallbackQueryHandler,
     ContextTypes, filters, ConversationHandler
@@ -196,7 +199,7 @@ async def handle_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🔗 المُحيل: {ref_txt}", parse_mode="Markdown")
     except Exception: pass
 
-    await update.message.reply_text("✅ تم إنشاء وتفعيل حسابك بنجاح! حصلت على 1 لفة مجانية بالعجلة.", reply_markup=ReplyKeyboardMarkup([[]], remove_keyboard=True))
+    await update.message.reply_text("✅ تم إنشاء وتفعيل حسابك بنجاح! حصلت على 1 لفة مجانية بالعجلة.", reply_markup=ReplyKeyboardRemove())
     return await show_main_menu(update, context)
 
 # --- واجهة لوحة العميل ---
