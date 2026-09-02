@@ -8,7 +8,7 @@ def get_connection():
     return conn
 
 def init_db():
-    """إنشاء جميع جداول قاعدة البيانات بجميع الميزات والبيانات الافتراضية"""
+    """إنشاء جميع جداول قاعدة البيانات والبيانات الافتراضية"""
     conn = get_connection()
     cursor = conn.cursor()
     
@@ -42,7 +42,7 @@ def init_db():
         )
     ''')
     
-    # 3. جدول المسؤولين والأدمنية والأدوار
+    # 3. جدول المسؤولين والأدمنية
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS admins (
             user_id INTEGER PRIMARY KEY,
@@ -50,7 +50,7 @@ def init_db():
         )
     ''')
 
-    # 4. جدول المعاملات والطلبات (شحن وسحب)
+    # 4. جدول المعاملات والطلبات
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS transactions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -64,7 +64,7 @@ def init_db():
         )
     ''')
 
-    # 5. جدول طرق وسائل الشحن والسحب
+    # 5. جدول طرق الشحن والسحب
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS payment_methods (
             name TEXT PRIMARY KEY,
@@ -93,7 +93,7 @@ def init_db():
         )
     ''')
 
-    # 8. جدول العروض الحالية
+    # 8. جدول العروض
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS offers (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -103,7 +103,7 @@ def init_db():
         )
     ''')
 
-    # 9. جدول التذاكر ورسائل الدعم والإنذارات/الإصابات
+    # 9. جدول التذاكر والدعم والإصابات
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS support_tickets (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -124,27 +124,26 @@ def init_db():
         ('channel_link', 'https://t.me/'),
         ('welcome_bonus', '0.0'),
         ('deposit_bonus_pct', '0.0'),
-        ('matching_bonus_pct', '5.0'), # بونص إضافي عند تشابه آخر رقمين في رقم العملية
+        ('matching_bonus_pct', '5.0'),
         ('wheel_prob', '[30.0, 25.0, 20.0, 10.0, 8.0, 5.0, 1.8, 0.19, 0.01]')
     ]
     
     for key, val in default_settings:
         cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (key, val))
         
-    # إدراج طرق الدفع الافتراضية
+    # إدراج الحسابات الحالية كافتراضي (test test)
     cursor.execute("INSERT OR IGNORE INTO payment_methods (name, details) VALUES (?, ?)", 
-                   ('شام كاش', 'حساب شام كاش: 09XXXXXXX'))
+                   ('شام كاش', 'حساب شام كاش: test test'))
     cursor.execute("INSERT OR IGNORE INTO payment_methods (name, details) VALUES (?, ?)", 
-                   ('سيرياتيل كاش', 'حساب سيرياتيل كاش: 09XXXXXXX'))
+                   ('سيرياتيل كاش', 'حساب سيرياتيل كاش: test test'))
 
-    # إضافة حساب الأدمن الأساسي تلقائياً
+    # إضافة الأدمن الرئيسي
     cursor.execute("INSERT OR IGNORE INTO admins (user_id, role) VALUES (?, ?)", (8903157513, 'full'))
 
     conn.commit()
     conn.close()
 
 def db_query(query: str, params: tuple = (), fetchone: bool = False, fetchall: bool = False, commit: bool = False):
-    """دالة تنفيذ الاستعلامات في قاعدة البيانات"""
     conn = get_connection()
     cursor = conn.cursor()
     result = None
