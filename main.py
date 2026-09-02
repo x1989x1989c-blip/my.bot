@@ -31,17 +31,24 @@ logging.basicConfig(level=logging.INFO)
     ADMIN_REM_ADMIN_ID, ADMIN_REPLY_USER, ADMIN_REPLY_TEXT
 ) = range(39)
 
-# --- دالة التحقق المرنة من الرقم السوري ---
+# --- دالة التحقق المرنة والشاملة من الرقم السوري ---
 def parse_syrian_phone(text: str) -> str | None:
-    if not text: return None
+    if not text:
+        return None
+    # استخراج كافة الأرقام فقط وتجاهل الرموز والمسافات
     digits = "".join(c for c in text if c.isdigit())
-    if digits.startswith("09") and len(digits) == 10:
-        return "+963" + digits[1:]
-    elif digits.startswith("9639") and len(digits) == 12:
-        return "+" + digits
-    elif digits.startswith("963") and len(digits) == 12 and digits[3] == '9':
-        return "+" + digits
-    elif len(digits) == 9 and digits.startswith("9"):
+    
+    # إزالة صيغ فتح الخط الدولي والبادئات المختلفة
+    if digits.startswith("00963"):
+        digits = digits[5:]
+    elif digits.startswith("963"):
+        digits = digits[3:]
+        
+    if digits.startswith("0"):
+        digits = digits[1:]
+        
+    # الرقم السوري المحمول يتكون من 9 أرقام ويبدأ بالرقم 9 (مثال: 962840363)
+    if len(digits) == 9 and digits.startswith("9"):
         return "+963" + digits
     return None
 
@@ -61,7 +68,7 @@ async def handle_spin_api(request):
         return web.json_response({'success': False, 'message': 'لا تملك لفات مجانية حالياً!'})
 
     res = db_query("SELECT value FROM settings WHERE key = 'wheel_prob'", fetchone=True)
-    probs_str = res['value'] if res else '[30.0, 25.0, 20.0, 10.0, 8.0, 5.0, 1.8, 0.19, 0.01]'
+    probs_str = res['value'] if res and res['value'] else '[30.0, 25.0, 20.0, 10.0, 8.0, 5.0, 1.8, 0.19, 0.01]'
     try:
         probs = json.loads(probs_str)
     except Exception:
@@ -143,7 +150,11 @@ async def handle_captcha(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # --- استلام وتأكيد الرقم السوري وانشاء حساب iChancy ---
 async def handle_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    raw_input = update.message.contact.phone_number if update.message.contact else (update.message.text or "")
+    raw_input = ""
+    if update.message and update.message.contact and update.message.contact.phone_number:
+        raw_input = update.message.contact.phone_number
+    elif update.message and update.message.text:
+        raw_input = update.message.text
 
     phone = parse_syrian_phone(raw_input)
     if not phone:
@@ -154,7 +165,10 @@ async def handle_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ichancy_p = f"pass_{random.randint(100000, 999999)}"
 
     wb_res = db_query("SELECT value FROM settings WHERE key = 'welcome_bonus'", fetchone=True)
-    welcome_bonus = float(wb_res['value']) if wb_res else 0.0
+    try:
+        welcome_bonus = float(wb_res['value']) if wb_res and wb_res['value'] else 0.0
+    except ValueError:
+        welcome_bonus = 0.0
 
     # إعطاء 1 لفة مجانية أوتوماتيكياً عند تخطي إنشاء الحساب والبونص الترحيبي
     db_query("""UPDATE users SET phone = ?, is_verified = 1, ichancy_user = ?, ichancy_pass = ?, 
@@ -201,7 +215,9 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     user = db_query("SELECT * FROM users WHERE user_id = ?", (user_id,), fetchone=True)
-    
+    if not user:
+        return ConversationHandler.END
+
     msg = (
         f"🙋‍♂️ **مرحباً بك {user['full_name']} في لوحة العميل**\n\n"
         f"🆔 معرف الحساب: `{user['user_id']}`\n"
@@ -318,8 +334,13 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 bon_res = db_query("SELECT value FROM settings WHERE key = 'deposit_bonus_pct'", fetchone=True)
                 match_res = db_query("SELECT value FROM settings WHERE key = 'matching_bonus_pct'", fetchone=True)
                 
-                bonus_pct = float(bon_res['value']) if bon_res else 0.0
-                match_pct = float(match_res['value']) if match_res else 0.0
+                try:
+                    bonus_pct = float(bon_res['value']) if bon_res and bon_res['value'] else 0.0
+                except ValueError: bonus_pct = 0.0
+
+                try:
+                    match_pct = float(match_res['value']) if match_res and match_res['value'] else 0.0
+                except ValueError: match_pct = 0.0
 
                 tx_code = str(tx['account_or_txid'])
                 extra_bonus = match_pct if (len(tx_code) >= 2 and tx_code[-1] == tx_code[-2]) else 0.0
@@ -684,7 +705,12 @@ async def process_admin_add_bal_user(update: Update, context: ContextTypes.DEFAU
     return ADMIN_ADD_BAL_AMT
 
 async def process_admin_add_bal_amt(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    amt = float(update.message.text.strip())
+    try:
+        amt = float(update.message.text.strip())
+    except ValueError:
+        await update.message.reply_text("❌ أدخل رقم صحيح للمبلغ.")
+        return ADMIN_ADD_BAL_AMT
+
     uid = context.user_data.get('target_user')
     db_query("UPDATE users SET bot_balance = bot_balance + ? WHERE user_id = ?", (amt, uid), commit=True)
     await update.message.reply_text(f"✅ تم إضافة {amt}$ إلى رصيد المستخدم {uid}")
@@ -699,24 +725,44 @@ async def process_admin_deduct_bal_user(update: Update, context: ContextTypes.DE
     return ADMIN_DEDUCT_BAL_AMT
 
 async def process_admin_deduct_bal_amt(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    amt = float(update.message.text.strip())
+    try:
+        amt = float(update.message.text.strip())
+    except ValueError:
+        await update.message.reply_text("❌ أدخل رقم صحيح للمبلغ.")
+        return ADMIN_DEDUCT_BAL_AMT
+
     uid = context.user_data.get('target_user')
     db_query("UPDATE users SET bot_balance = bot_balance - ? WHERE user_id = ?", (amt, uid), commit=True)
     await update.message.reply_text(f"✅ تم خصم {amt}$ من رصيد المستخدم {uid}")
     return ConversationHandler.END
 
 async def process_admin_gen_code_val(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['code_val'] = float(update.message.text.strip())
+    try:
+        context.user_data['code_val'] = float(update.message.text.strip())
+    except ValueError:
+        await update.message.reply_text("❌ أدخل قيمة عددية صحيحة.")
+        return ADMIN_GEN_CODE_VAL
+
     await update.message.reply_text("أدخل عدد مرات الاستخدام لكل كود:")
     return ADMIN_GEN_CODE_USES
 
 async def process_admin_gen_code_uses(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['code_uses'] = int(update.message.text.strip())
+    try:
+        context.user_data['code_uses'] = int(update.message.text.strip())
+    except ValueError:
+        await update.message.reply_text("❌ أدخل رقم صحيح لعدد المرات.")
+        return ADMIN_GEN_CODE_USES
+
     await update.message.reply_text("كم عدد الأكواد المطلوب توليدها؟")
     return ADMIN_GEN_CODE_QTY
 
 async def process_admin_gen_code_qty(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    qty = int(update.message.text.strip())
+    try:
+        qty = int(update.message.text.strip())
+    except ValueError:
+        await update.message.reply_text("❌ أدخل رقم صحيح للكمية.")
+        return ADMIN_GEN_CODE_QTY
+
     val = context.user_data.get('code_val', 1.0)
     uses = context.user_data.get('code_uses', 1)
     
@@ -755,13 +801,23 @@ async def process_admin_method_del(update: Update, context: ContextTypes.DEFAULT
     return ConversationHandler.END
 
 async def process_admin_wel_bonus(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    val = float(update.message.text.strip())
+    try:
+        val = float(update.message.text.strip())
+    except ValueError:
+        await update.message.reply_text("❌ أدخل قيمة عددية صحيحة.")
+        return ADMIN_WEL_BONUS
+
     db_query("UPDATE settings SET value = ? WHERE key = 'welcome_bonus'", (str(val),), commit=True)
     await update.message.reply_text(f"✅ تم ضبط البونص الترحيبي على {val}$.")
     return ConversationHandler.END
 
 async def process_admin_dep_bonus(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    val = float(update.message.text.strip())
+    try:
+        val = float(update.message.text.strip())
+    except ValueError:
+        await update.message.reply_text("❌ أدخل نسبة مئوية صحيحة.")
+        return ADMIN_DEP_BONUS
+
     db_query("UPDATE settings SET value = ? WHERE key = 'deposit_bonus_pct'", (str(val),), commit=True)
     await update.message.reply_text(f"✅ تم ضبط نسبة بونص الشحن على {val}%.")
     return ConversationHandler.END
@@ -887,7 +943,7 @@ async def main():
         ],
         states={
             CAPTCHA: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_captcha)],
-            PHONE: [MessageHandler(filters.CONTACT | filters.TEXT, handle_phone)],
+            PHONE: [MessageHandler((filters.CONTACT | filters.TEXT) & ~filters.COMMAND, handle_phone)],
             CHARGE_AMT: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_charge_amt)],
             CHARGE_TX: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_charge_tx)],
             WITHDRAW_ACC: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_withdraw_acc)],
