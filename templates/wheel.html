@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>عجلة الحظ الذهبية</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        body {
+            background: radial-gradient(circle, #0f172a 0%, #020617 100%);
+            color: #fff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+        }
+        h2 { color: #fbbf24; text-shadow: 0 0 10px #f59e0b; margin-bottom: 20px; }
+        .wheel-container {
+            position: relative;
+            width: 340px;
+            height: 340px;
+        }
+        canvas {
+            border-radius: 50%;
+            border: 8px solid #fbbf24;
+            box-shadow: 0 0 25px rgba(251, 191, 36, 0.6);
+        }
+        .pointer {
+            position: absolute;
+            top: -15px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 0;
+            height: 0;
+            border-left: 15px solid transparent;
+            border-right: 15px solid transparent;
+            border-top: 30px solid #ef4444;
+            z-index: 10;
+        }
+        button {
+            margin-top: 30px;
+            padding: 12px 35px;
+            font-size: 18px;
+            font-weight: bold;
+            background: linear-gradient(45deg, #d97706, #fbbf24);
+            color: #000;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(245, 158, 11, 0.4);
+            transition: all 0.3s ease;
+        }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+    </style>
+</head>
+<body>
+    <h2>🎡 عجلة الحظ الذهبية 🎡</h2>
+    <div class="wheel-container">
+        <div class="pointer"></div>
+        <canvas id="wheel" width="340" height="340"></canvas>
+    </div>
+    <button id="spinBtn" onclick="spin()">أدر العجلة الآن!</button>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+
+        const values = [0, 5, 10, 15, 25, 50, 100, 500, 10000];
+        const colors = ['#1e3a8a', '#fbbf24', '#0f172a', '#d97706', '#1e40af', '#f59e0b', '#1e3a8a', '#fbbf24', '#b45309'];
+        const canvas = document.getElementById('wheel');
+        const ctx = canvas.getContext('2d');
+        const numSectors = values.length;
+        const arc = 2 * Math.PI / numSectors;
+        let startAngle = 0;
+
+        function drawWheel() {
+            for (let i = 0; i < numSectors; i++) {
+                const angle = startAngle + i * arc;
+                ctx.fillStyle = colors[i % colors.length];
+                ctx.beginPath();
+                ctx.arc(170, 170, 160, angle, angle + arc, false);
+                ctx.lineTo(170, 170);
+                ctx.fill();
+
+                ctx.save();
+                ctx.fillStyle = (i % 2 === 0) ? '#ffffff' : '#000000';
+                ctx.font = 'bold 16px Arial';
+                ctx.translate(170 + Math.cos(angle + arc / 2) * 110, 170 + Math.sin(angle + arc / 2) * 110);
+                ctx.rotate(angle + arc / 2 + Math.PI / 2);
+                ctx.fillText(values[i], -ctx.measureText(values[i]).width / 2, 0);
+                ctx.restore();
+            }
+        }
+        drawWheel();
+
+        async function spin() {
+            const btn = document.getElementById('spinBtn');
+            btn.disabled = true;
+
+            const userId = tg.initDataUnsafe?.user?.id || 0;
+            
+            try {
+                const response = await fetch('/api/spin', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ user_id: userId })
+                });
+                const data = await response.json();
+
+                if(!data.success) {
+                    alert(data.message);
+                    btn.disabled = false;
+                    return;
+                }
+
+                const prizeIndex = values.indexOf(data.prize);
+                const targetDegree = 360 - (prizeIndex * (360 / numSectors)) - (180 / numSectors);
+                const totalRots = 360 * 5 + targetDegree;
+
+                let currentDegree = 0;
+                const duration = 4000;
+                const startTime = performance.now();
+
+                function animate(currentTime) {
+                    const elapsed = currentTime - startTime;
+                    if (elapsed < duration) {
+                        const progress = elapsed / duration;
+                        const easeOut = 1 - Math.pow(1 - progress, 3);
+                        currentDegree = easeOut * totalRots;
+                        startAngle = (currentDegree * Math.PI) / 180;
+                        drawWheel();
+                        requestAnimationFrame(animate);
+                    } else {
+                        alert(`مبروك! لقد ربحت ${data.prize} نقطة/رصيد!`);
+                        tg.close();
+                    }
+                }
+                requestAnimationFrame(animate);
+
+            } catch (err) {
+                alert("حدث خطأ أثناء الاتصال بالخادم.");
+                btn.disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>
