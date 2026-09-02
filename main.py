@@ -6,7 +6,7 @@ import re
 from aiohttp import web
 import jinja2
 import aiohttp_jinja2
-from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
+from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo, ReplyKeyboardRemove
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, CallbackQueryHandler,
     ContextTypes, filters, ConversationHandler
@@ -141,14 +141,14 @@ async def handle_captcha(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     if text and text.isdigit() and int(text) == context.user_data.get('captcha_res'):
         kb = [[KeyboardButton("📱 مشاركة رقم الهاتف السوري", request_contact=True)]]
-        await update.message.reply_text("✅ إجابة صحيحة! شارك رقمك السوري عبر الزر، أو أرسله كتابةً (مثال: 0912345678):",
+        await update.message.reply_text("✅ إجابة صحيحة! اضغط على الزر أدناه لمشاركة رقمك الفوري أو أرسله كتابةً (مثال: 0912345678):",
                                        reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True, one_time_keyboard=True))
         return PHONE
     else:
         await update.message.reply_text("❌ إجابة خاطئة! أعد المحاولة:")
         return CAPTCHA
 
-# --- استلام وتأكيد الرقم السوري ---
+# --- استلام وتأكيد الرقم السوري الفوري ---
 async def handle_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     raw_input = ""
@@ -159,7 +159,7 @@ async def handle_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     phone = parse_syrian_phone(raw_input)
     if not phone:
-        await update.message.reply_text("❌ رقم سوري غير صالح! أرسل رقماً يبدأ بـ 09 أو استخدم زر المشاركة.")
+        await update.message.reply_text("❌ رقم سوري غير صالح! أرسل رقماً يبدأ بـ 09 أو اضغط على زر مشاركة الرقم الفوري.")
         return PHONE
 
     wb_res = db_query("SELECT value FROM settings WHERE key = 'welcome_bonus'", fetchone=True)
@@ -168,7 +168,7 @@ async def handle_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except ValueError:
         welcome_bonus = 0.0
 
-    # إعداد وتأكيد رقم الهاتف دون إنشاء حساب ichancy تلقائياً
+    # إعداد وتأكيد رقم الهاتف دون طلب إعادة إدخاله
     db_query("""UPDATE users SET phone = ?, is_verified = 1, bot_balance = bot_balance + ? WHERE user_id = ?""",
              (phone, welcome_bonus, user_id), commit=True)
 
@@ -191,7 +191,7 @@ async def handle_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🔗 المُحيل: {ref_txt}", parse_mode="Markdown")
     except Exception: pass
 
-    await update.message.reply_text("✅ تم تفعيل رقمك بنجاح! يمكنك الآن إنشاء حساب iChancy من القائمة الرئيسية.", reply_markup=ReplyKeyboardMarkup([[]], remove_keyboard=True))
+    await update.message.reply_text("✅ تم تحقيق وتأكيد رقمك بنجاح!", reply_markup=ReplyKeyboardRemove())
     return await show_main_menu(update, context)
 
 # --- واجهة لوحة العميل ---
@@ -213,8 +213,6 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not user:
         return ConversationHandler.END
 
-    has_ichancy = bool(user['ichancy_user'])
-
     msg = (
         f"🙋‍♂️ **مرحباً بك {user['full_name']} في لوحة العميل**\n\n"
         f"🆔 معرف الحساب: `{user['user_id']}`\n"
@@ -223,14 +221,8 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🎡 اللفات المتاحة للعجلة: `{user['wheel_spins']}`\n"
     )
 
-    # زر إنشاء / عرض حساب ichancy
-    if has_ichancy:
-        ichancy_btn = InlineKeyboardButton("👤 حسابي ichancy", callback_data="show_ichancy_acc")
-    else:
-        ichancy_btn = InlineKeyboardButton("✨ إنشاء حساب ichancy", callback_data="create_ichancy_acc")
-
     kb = [
-        [ichancy_btn],
+        [InlineKeyboardButton("✨ انشاء حساب ichancy", callback_data="create_ichancy_acc"), InlineKeyboardButton("👤 حسابي", callback_data="my_account")],
         [InlineKeyboardButton("💳 شحن رصيد للبوت", callback_data="charge_bot"), InlineKeyboardButton("💸 سحب رصيد من البوت", callback_data="withdraw_bot")],
         [InlineKeyboardButton("📥 شحن إلى الموقع", callback_data="site_dep"), InlineKeyboardButton("📤 سحب من الموقع", callback_data="site_with")],
         [InlineKeyboardButton("🎡 عجلة الحظ (Web App)", web_app=WebAppInfo(url=SERVER_WHEEL_URL))],
@@ -260,23 +252,59 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = query.from_user.id
         user = db_query("SELECT ichancy_user FROM users WHERE user_id = ?", (user_id,), fetchone=True)
         if user and user['ichancy_user']:
-            await query.answer("لديك حساب بالفعل!", show_alert=True)
+            await query.answer("انت منشء حساب بالفعل", show_alert=True)
             return
-        await query.message.edit_text("✍️ **إنشاء حساب iChancy:**\n\nأدخل اسم المستخدم المطلوب (يجب أن يتكون من 6 أحرف/أرقام بالضبط):")
+        await query.message.edit_text("✍️ **إنشاء حساب iChancy:**\n\nأدخل اسم المستخدم المطلوب (يجب أن يتكون من 6 أحرف إنجليزية على الأقل):")
         return ICHANCY_USER_INPUT
 
-    elif data == "show_ichancy_acc":
+    elif data == "my_account":
         user_id = query.from_user.id
-        user = db_query("SELECT ichancy_user, ichancy_pass FROM users WHERE user_id = ?", (user_id,), fetchone=True)
-        if user and user['ichancy_user']:
-            acc_info = (
-                f"🎮 **معلومات حسابك في iChancy:**\n\n"
-                f"👤 اسم المستخدم: `{user['ichancy_user']}`\n"
-                f"🔑 كلمة المرور: `{user['ichancy_pass']}`"
-            )
-            await query.message.edit_text(acc_info, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("رجوع", callback_data="main_menu")]]))
-        else:
-            await query.answer("لم تقم بإنشاء حساب بعد!", show_alert=True)
+        user = db_query("SELECT * FROM users WHERE user_id = ?", (user_id,), fetchone=True)
+        
+        ich_u = user['ichancy_user'] if user and user['ichancy_user'] else "لم يتم الإنشاء بعد"
+        ich_p = user['ichancy_pass'] if user and user['ichancy_pass'] else "لم يتم الإنشاء بعد"
+
+        acc_info = (
+            f"👤 **بيانات حساب العميل:**\n\n"
+            f"🆔 معرف الحساب: `{user['user_id']}`\n"
+            f"👤 اسم مستخدم iChancy: `{ich_u}`\n"
+            f"🔑 كلمة المرور: `{ich_p}`\n"
+            f"💰 رصيد البوت: `{user['bot_balance']:.2f}` ل.س\n"
+            f"🌐 رصيد الموقع: `{user['site_balance']:.2f}` ل.س"
+        )
+
+        kb = [
+            [InlineKeyboardButton("📥 شحن رصيد الى الموقع", callback_data="site_dep"), InlineKeyboardButton("📤 سحب رصيد من الموقع", callback_data="site_with")],
+            [InlineKeyboardButton("⚡ شحن كامل الرصيد", callback_data="site_dep_all"), InlineKeyboardButton("🔥 سحب كامل الرصيد", callback_data="site_with_all")],
+            [InlineKeyboardButton("رجوع للقائمة الرئيسية", callback_data="main_menu")]
+        ]
+        await query.message.edit_text(acc_info, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+
+    elif data == "site_dep_all":
+        user_id = query.from_user.id
+        user = db_query("SELECT bot_balance FROM users WHERE user_id = ?", (user_id,), fetchone=True)
+        amt = user['bot_balance'] if user else 0.0
+
+        if amt <= 0:
+            await query.answer("❌ لا يوجد رصيد كافٍ في البوت للتحويل!", show_alert=True)
+            return
+
+        db_query("UPDATE users SET bot_balance = 0, site_balance = site_balance + ? WHERE user_id = ?", (amt, user_id), commit=True)
+        await query.answer(f"✅ تم شحن كامل الرصيد ({amt:.2f} ل.س) إلى الموقع بنجاح!", show_alert=True)
+        await show_main_menu(update, context)
+
+    elif data == "site_with_all":
+        user_id = query.from_user.id
+        user = db_query("SELECT site_balance FROM users WHERE user_id = ?", (user_id,), fetchone=True)
+        amt = user['site_balance'] if user else 0.0
+
+        if amt <= 0:
+            await query.answer("❌ لا يوجد رصيد كافٍ في الموقع للسحب!", show_alert=True)
+            return
+
+        db_query("UPDATE users SET site_balance = 0, bot_balance = bot_balance + ? WHERE user_id = ?", (amt, user_id), commit=True)
+        await query.answer(f"✅ تم سحب كامل الرصيد ({amt:.2f} ل.س) من الموقع إلى البوت بنجاح!", show_alert=True)
+        await show_main_menu(update, context)
 
     elif data == "charge_bot":
         methods = db_query("SELECT name FROM payment_methods", fetchall=True)
@@ -289,7 +317,7 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['selected_method'] = method_name
         pm = db_query("SELECT details FROM payment_methods WHERE name = ?", (method_name,), fetchone=True)
         details = pm['details'] if pm else 'تواصل مع الدعم'
-        await query.message.edit_text(f"💳 **طريقة الشحن ({method_name}):**\n\n{details}\n\nأدخل مبلغ الشحن المطلوب (يتلقى أول رقم فقط):")
+        await query.message.edit_text(f"💳 **طريقة الشحن ({method_name}):**\n\n{details}\n\nأدخل مبلغ الشحن المطلوب:")
         return CHARGE_AMT
 
     elif data == "withdraw_bot":
@@ -319,7 +347,7 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"👥 عدد إحالاتك النشطة: `{user['active_referrals']}`\n"
             f"💰 إجمالي مشحونات إحالاتك: `{total_ref_dep:.2f}` ل.س\n"
             f"🎡 تحصّل على 1 لفة مجانية لكل شخص يُسجل عن طريقك.\n"
-            f"🔥 **ميزة الـ 10% حرق:** عند امتلاك 3 إحالات نشطة، تربح 10% من نسبة حرق المشحونات (تراجع وتقبض يدويًا من الإدارة كل 10 أيام)."
+            f"🔥 **ميزة الـ 10% حرق:** عند امتلاك 3 إحالات نشطة، تربح 10% من نسبة حرق المشحونات."
         )
         await query.message.edit_text(msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("رجوع", callback_data="main_menu")]]))
 
@@ -401,19 +429,27 @@ async def handle_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("adm_"):
         await handle_admin_callbacks(query, context, data)
 
-# --- استلام اسم مستخدم وكلمة مرور حساب ichancy ---
+# --- استلام اسم مستخدم وكلمة مرور حساب ichancy مع التحقق ---
 async def receive_ichancy_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
-    if len(text) != 6:
-        await update.message.reply_text("❌ يجب أن يتكون اسم المستخدم من 6 أحرف أو أرقام بالضبط! أعد المحاولة:")
+    
+    # تحقق ألا يقل عن 6 أحرف إنجليزية/أرقام وبدون أرقام/حروف عربية
+    if len(text) < 6 or not re.match(r'^[a-zA-Z0-9_]+$', text):
+        await update.message.reply_text("❌ يجب أن يتكون اسم المستخدم من 6 أحرف/أرقام إنجليزية على الأقل دون رموز خاصة أو حروف عربية! أعد المحاولة:")
         return ICHANCY_USER_INPUT
 
     context.user_data['temp_ichancy_user'] = text
-    await update.message.reply_text("🔑 الآن أدخل كلمة المرور الخاصة بالحساب:")
+    await update.message.reply_text("🔑 تم قبول اسم المستخدم! أدخل الآن كلمة المرور (يجب ألا تقل عن 6 أحرف إنجليزية):")
     return ICHANCY_PASS_INPUT
 
 async def receive_ichancy_pass(update: Update, context: ContextTypes.DEFAULT_TYPE):
     pwd = update.message.text.strip()
+    
+    # تحقق ألا تقل كلمة المرور عن 6 أحرف إنجليزية
+    if len(pwd) < 6 or not re.match(r'^[a-zA-Z0-9_!@#$%^&*()]+$', pwd):
+        await update.message.reply_text("❌ يجب أن تتكون كلمة المرور من 6 أحرف إنجليزية على الأقل! أعد المحاولة:")
+        return ICHANCY_PASS_INPUT
+
     user_id = update.effective_user.id
     u_name = context.user_data.get('temp_ichancy_user')
 
