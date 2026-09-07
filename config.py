@@ -1,7 +1,7 @@
 import os
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8929555984:AAEVLnYzg6wVmFrpuxICgoLg7t0ttFJcdTg")
-SUPER_ADMIN_ID = int(os.getenv("ADMIN_ID", "8903157513"))
+SUPER_ADMIN_ID = int(os.getenv("ADMIN_ID", "8611611591"))
 PORT = int(os.getenv("PORT", 8080))
 WEBAPP_URL = os.getenv("WEBAPP_URL", "https://my-bot-j48l.onrender.com")
 
