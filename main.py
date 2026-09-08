@@ -1,5 +1,6 @@
 import os
 import re
+import time
 import random
 import sqlite3
 import requests
@@ -51,7 +52,6 @@ def init_db():
             question TEXT
         )
     """)
-    # جدول الردود يتسع لأكثر من رد لنفس الكلمة المفتاحية
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS custom_replies (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -63,6 +63,17 @@ def init_db():
         CREATE TABLE IF NOT EXISTS groups (
             chat_id INTEGER PRIMARY KEY,
             title TEXT
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS admins (
+            user_id INTEGER PRIMARY KEY
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS steal_cooldowns (
+            user_id INTEGER PRIMARY KEY,
+            last_steal INTEGER
         )
     """)
 
@@ -81,6 +92,16 @@ active_guess_games = {}
 xo_games = {}
 
 # ==================== أدوات مساعدة ====================
+def is_admin(user_id):
+    if user_id == ADMIN_ID:
+        return True
+    conn = sqlite3.connect("bot_data.db")
+    c = conn.cursor()
+    c.execute("SELECT user_id FROM admins WHERE user_id = ?", (user_id,))
+    res = c.fetchone()
+    conn.close()
+    return bool(res)
+
 def is_bot_admin(chat_id):
     try:
         bot_member = bot.get_chat_member(chat_id, bot.get_me().id)
@@ -103,6 +124,31 @@ def update_balance(user_id, amount):
     conn.commit()
     conn.close()
 
+def clean_urls(text):
+    """إزالة كافة الروابط من النص"""
+    return re.sub(r'https?://\S+|www\.\S+|t\.me/\S+', '', text).strip()
+
+def fetch_ai_answer(question):
+    """جلب الإجابة بدون روابط من مصادر البحث"""
+    try:
+        res = requests.get(f"https://api.popcat.xyz/chatbot?msg={requests.utils.quote(question)}&name=Bot", timeout=8).json()
+        ans = res.get("response", "")
+        if ans and "error" not in ans.lower():
+            return clean_urls(ans)
+    except:
+        pass
+    
+    # محرك بحث احتياطي DuckDuckGo Instant Answer
+    try:
+        ddg_res = requests.get(f"https://api.duckduckgo.com/?q={requests.utils.quote(question)}&format=json&no_html=1", timeout=8).json()
+        ans = ddg_res.get("AbstractText", "")
+        if ans:
+            return clean_urls(ans)
+    except:
+        pass
+
+    return "عذراً، لم أستطع العثور على إجابة واضحة لهذا السؤال حالياً."
+
 # ==================== رسالة الترحيب /start و ستارت ====================
 def send_welcome_message(message):
     user_id = message.from_user.id
@@ -116,9 +162,9 @@ def send_welcome_message(message):
         "✨ **مميزات البوت:**\n"
         "🛡️ **حماية المجموعة:** منع الروابط، المعرفات، والرسائل المحولة تلقائياً.\n"
         "🎮 **العاب وتسلية:** قائمة ألعاب تفاعلية، XO، حزازير، رياضيات، وسرقة.\n"
-        "💰 **نظام اقتصادي:** رصيد وهمي، متجر مشتريات، وسجل ممتلكات.\n"
-        "🤖 **ذكاء اصطناعي:** إجابة فورية بكتابة `بدي اسالك [سؤالك]`.\n"
-        "🎵 **موسيقى:** البحث والاستماع للأغاني بـ `سمعني [اسم الأغنية]`.\n"
+        "💰 **نظام اقتصادي:** رصيد وهمي، متجر مشتريات، وإهداء الممتلكات.\n"
+        "🤖 **ذكاء اصطناعي:** إجابة فورية بدون روابط بكتابة `بدي اسالك [سؤالك]`.\n"
+        "🎵 **موسيقى:** الاستماع والتحميل الصوتي بـ `سمعني [اسم الأغنية]`.\n"
         "💬 **ردود مخصصة متكررة وعشوائية.**\n\n"
         "👇 اضغط على الزر أدناه لإضافة البوت إلى مجموعتك وترقيته لمشرف:"
     )
@@ -127,7 +173,7 @@ def send_welcome_message(message):
     add_group_btn = types.InlineKeyboardButton("➕ أضفني إلى المجموعة", url=f"https://t.me/{bot_username}?startgroup=true")
     markup.add(add_group_btn)
 
-    if user_id == ADMIN_ID:
+    if is_admin(user_id):
         admin_btn = types.InlineKeyboardButton("⚙️ لوحة الإدارة", callback_data="open_admin_panel")
         markup.add(admin_btn)
 
@@ -138,6 +184,7 @@ def send_welcome_message(message):
 def main_router(message):
     text = (message.text or "").strip()
     chat_type = message.chat.type
+    user_id = message.from_user.id
 
     if text.startswith("/start") or text.lower() == "ستارت":
         send_welcome_message(message)
@@ -172,7 +219,7 @@ def main_router(message):
                     pass
                 return
 
-    if message.from_user.id == ADMIN_ID and ADMIN_ID in admin_states:
+    if is_admin(user_id) and user_id in admin_states:
         handle_admin_inputs(message)
     else:
         process_bot_commands(message)
@@ -219,52 +266,105 @@ def process_bot_commands(message):
             del active_guess_games[chat_id]
             return
 
-    # 3. الذكاء الاصطناعي المباشر
+    # 3. الذكاء الاصطناعي بدون روابط
     if text.startswith("بدي اسالك"):
         question = text.replace("بدي اسالك", "").strip()
         if not question:
             bot.reply_to(message, "تفضل اكتب سؤالك بعد الأمر مباشرة.\nمثال: `بدي اسالك من هو مخترع الكهرباء؟`", parse_mode="Markdown")
             return
         bot.send_chat_action(chat_id, 'typing')
-        try:
-            res = requests.get(f"https://api.popcat.xyz/chatbot?msg={requests.utils.quote(question)}&name=Bot", timeout=8).json()
-            response_text = res.get("response", "عذراً، لم أستطع فهم السؤال.")
-        except:
-            response_text = "حدث خطأ أثناء التواصل مع سيرفر الذكاء الاصطناعي."
-        bot.reply_to(message, response_text)
+        ans = fetch_ai_answer(question)
+        bot.reply_to(message, ans)
         return
 
-    # 4. البحث في يوتيوب المطور
+    # 4. البحث والتحميل الصوتي من يوتيوب ("سمعني")
     if text.startswith("سمعني"):
         query = text.replace("سمعني", "").strip()
-        if query:
-            bot.reply_to(message, f"🔍 جاري البحث عن: **{query}**...", parse_mode="Markdown")
-            ydl_opts = {
-                'format': 'bestaudio/best',
-                'default_search': 'ytsearch1:',
-                'noplaylist': True,
-                'quiet': True,
-                'no_warnings': True,
-                'geo_bypass': True
-            }
-            try:
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(query, download=False)
-                    if info and 'entries' in info and len(info['entries']) > 0:
-                        video = info['entries'][0]
-                        url = video.get('webpage_url', f"https://www.youtube.com/watch?v={video.get('id')}")
-                        title = video.get('title', query)
-                        bot.send_message(chat_id, f"🎵 **{title}**\n\n🔗 [اضغط للاستماع على يوتيوب]({url})", parse_mode="Markdown")
-                    else:
-                        bot.reply_to(message, "لم يتم العثور على نتائج.")
-            except Exception:
-                encoded_query = requests.utils.quote(query)
-                search_url = f"https://www.youtube.com/results?search_query={encoded_query}"
-                bot.send_message(chat_id, f"🎵 **نتائج البحث عن {query}:**\n\n🔗 [فتح البحث المباشر في يوتيوب]({search_url})", parse_mode="Markdown")
+        if not query:
+            bot.reply_to(message, "يرجى كتابة اسم الأغنية بعد الأمر.\nمثال: `سمعني فيروز`", parse_mode="Markdown")
+            return
+
+        status_msg = bot.reply_to(message, f"🔍 جاري البحث وتحميل الأغنية: **{query}**...", parse_mode="Markdown")
+        
+        ydl_opts = {
+            'format': 'bestaudio[ext=m4a]/bestaudio/best',
+            'default_search': 'ytsearch1:',
+            'outtmpl': 'downloads/%(id)s.%(ext)s',
+            'noplaylist': True,
+            'quiet': True,
+            'no_warnings': True,
+            'geo_bypass': True
+        }
+        
+        try:
+            if not os.path.exists('downloads'):
+                os.makedirs('downloads')
+                
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(query, download=True)
+                if info and 'entries' in info and len(info['entries']) > 0:
+                    video = info['entries'][0]
+                    file_path = ydl.prepare_filename(video)
+                    title = video.get('title', query)
+                    performer = video.get('uploader', 'Music Bot')
+                    
+                    with open(file_path, 'rb') as audio:
+                        bot.send_audio(chat_id, audio, title=title, performer=performer, reply_to_message_id=message.message_id)
+                    
+                    bot.delete_message(chat_id, status_msg.message_id)
+                    if os.path.exists(file_path):
+                        os.remove(file_path)
+                else:
+                    bot.edit_message_text("❌ لم يتم العثور على نتائج للأغنية المطلوبة.", chat_id, status_msg.message_id)
+        except Exception:
+            bot.edit_message_text("❌ حدث خطأ أثناء التحميل، يرجى المحاولة لاحقاً.", chat_id, status_msg.message_id)
         return
 
-    # 5. ميزة السرقة عند الرد
-    if text == "سرقة" or text == "سرقه":
+    # 5. نظام الإهداء (بالرد)
+    if text.startswith("اهداء") or text.startswith("إهداء"):
+        if not message.reply_to_message:
+            bot.reply_to(message, "⚠️ يجب أن تقوم بالرد (Reply) على رسالة العضو الذي تريد إهداءه!")
+            return
+        
+        target_user = message.reply_to_message.from_user
+        if target_user.id == user_id:
+            bot.reply_to(message, "عم تهدي حالك؟ ما بتزبط!")
+            return
+        if target_user.is_bot:
+            bot.reply_to(message, "ما فيك تهدي بوت!")
+            return
+
+        parts = text.split(maxsplit=2)
+        count = 1
+        item_name = ""
+
+        if len(parts) == 3 and parts[1].isdigit():
+            count = int(parts[1])
+            item_name = parts[2].strip()
+        elif len(parts) >= 2:
+            item_name = text.replace("اهداء", "").replace("إهداء", "").strip()
+
+        if not item_name:
+            bot.reply_to(message, "يرجى تحديد السلعة والعدد.\nمثال: `اهداء 1 علبة متة`", parse_mode="Markdown")
+            return
+
+        conn = sqlite3.connect("bot_data.db")
+        c = conn.cursor()
+        c.execute("SELECT quantity FROM inventory WHERE user_id = ? AND item_name = ?", (user_id, item_name))
+        row = c.fetchone()
+
+        if row and row[0] >= count:
+            c.execute("UPDATE inventory SET quantity = quantity - ? WHERE user_id = ? AND item_name = ?", (count, user_id, item_name))
+            c.execute("INSERT INTO inventory (user_id, item_name, quantity) VALUES (?, ?, ?) ON CONFLICT(user_id, item_name) DO UPDATE SET quantity = quantity + ?", (target_user.id, item_name, count, count))
+            conn.commit()
+            bot.reply_to(message, f"🎁 تم إهداء {count} ({item_name}) إلى {target_user.first_name} بنجاح!")
+        else:
+            bot.reply_to(message, f"❌ أنت لا تملك {count} من ({item_name}) لإهدائها!")
+        conn.close()
+        return
+
+    # 6. ميزة السرقة وتقييد الوقت (15 دقيقة)
+    if text in ["سرقة", "سرقه"]:
         if not message.reply_to_message:
             bot.reply_to(message, "⚠️ يجب أن تقوم بالرد (Reply) على رسالة العضو الذي تريد سرقته!")
             return
@@ -277,24 +377,41 @@ def process_bot_commands(message):
             bot.reply_to(message, "ما فيك تسرق بوت يا حباب!")
             return
 
+        current_time = int(time.time())
+        conn = sqlite3.connect("bot_data.db")
+        c = conn.cursor()
+        c.execute("SELECT last_steal FROM steal_cooldowns WHERE user_id = ?", (user_id,))
+        row = c.fetchone()
+
+        # تقييد 15 دقيقة (900 ثانية)
+        if row and (current_time - row[0]) < 900:
+            bot.reply_to(message, "ياويلك من الله لسا هلق سرقت!")
+            conn.close()
+            return
+
         target_bal = get_balance(target_user.id)
         if target_bal <= 0:
             bot.reply_to(message, f"حرام عليك! {target_user.first_name} مفلس وما معه ولا ليرة.")
+            conn.close()
             return
 
-        stolen_amount = max(1, int(target_bal * 0.01)) # سرقة 1% من رصيده
+        stolen_amount = max(1, int(target_bal * 0.01)) # سرقة 1%
         update_balance(target_user.id, -stolen_amount)
         update_balance(user_id, stolen_amount)
+
+        c.execute("INSERT INTO steal_cooldowns VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET last_steal = ?", (user_id, current_time, current_time))
+        conn.commit()
+        conn.close()
 
         bot.reply_to(message, f"😈 يا ويلك من الله! سرقت من {target_user.first_name} مبلغ {stolen_amount} ليرة وهمية (1% من رصيده)!")
         return
 
-    # 6. قائمة الألعاب الاحترافية
+    # 7. قائمة الألعاب الاحترافية
     if text in ["الالعاب", "الألعاب", "العاب"]:
         send_games_menu(chat_id)
         return
 
-    # 7. الأوامر العادية والألعاب
+    # 8. الأوامر العادية والممتلكات والمتجر
     if text == "اكسني":
         bot.send_message(chat_id, f"🎮 لعبة XO جديدة!\nأنشأ اللعبة: {message.from_user.first_name}\nاضغط للانضمام:", reply_markup=get_xo_keyboard(None, user_id))
         return
@@ -357,7 +474,7 @@ def process_bot_commands(message):
             msg_text = "📦 **ممتلكاتك الشحصية:**\n\n"
             for name, qty in items:
                 msg_text += f"• {name}: {qty}\n"
-            msg_text += "\nللبيع ارسل: `بيع [العدد] [اسم السلعة]`"
+            msg_text += "\nللبيع ارسل: `بيع [العدد] [اسم السلعة]`\nللإهداء بالرد ارسل: `اهداء [العدد] [اسم السلعة]`"
             bot.send_message(chat_id, msg_text, parse_mode="Markdown")
         else:
             bot.send_message(chat_id, "لا تملك أي غرض حالياً.")
@@ -428,27 +545,22 @@ def start_riddle_game(chat_id):
 @bot.callback_query_handler(func=lambda call: call.data.startswith('game_'))
 def handle_games_callbacks(call):
     chat_id = call.message.chat.id
-    user_id = call.from_user.id
     action = call.data.replace('game_', '')
 
     if action == "xo":
-        bot.send_message(chat_id, f"🎮 لعبة XO جديدة!\nأنشأ اللعبة: {call.from_user.first_name}\nاضغط للانضمام:", reply_markup=get_xo_keyboard(None, user_id))
-    
+        bot.send_message(chat_id, f"🎮 لعبة XO جديدة!\nأنشأ اللعبة: {call.from_user.first_name}\nاضغط للانضمام:", reply_markup=get_xo_keyboard(None, call.from_user.id))
     elif action == "riddle":
         start_riddle_game(chat_id)
-
     elif action == "math":
         n1, n2 = random.randint(1, 50), random.randint(1, 50)
         op = random.choice(['+', '-', '*'])
         ans = eval(f"{n1} {op} {n2}")
         active_math_games[chat_id] = ans
         bot.send_message(chat_id, f"🧮 **تحدي الرياضيات السريع:**\nكم الناتج: `{n1} {op} {n2}` ؟\nأول شخص يكتب الناتج الصحيح يربح 15 ليرة!", parse_mode="Markdown")
-
     elif action == "guess":
         target = random.randint(1, 20)
         active_guess_games[chat_id] = target
         bot.send_message(chat_id, "🎯 **تحدي خمن الرقم:**\nقمت بتخمين رقم من `1` إلى `20`!\nأول من يكتب الرقم الصحيح يربح 20 ليرة وهمية.", parse_mode="Markdown")
-
     elif action == "coin":
         res = random.choice(["طرة 🪙", "نقش 📜"])
         bot.answer_callback_query(call.id, f"نتيجة رمي العملة: {res}", show_alert=True)
@@ -531,6 +643,8 @@ def handle_xo_callbacks(call):
 def show_admin_panel(chat_id):
     markup = types.InlineKeyboardMarkup(row_width=2)
     markup.add(
+        types.InlineKeyboardButton("إضافة ادمن ➕", callback_data="admin_add_admin"),
+        types.InlineKeyboardButton("عرض/حذف أدمن 👥", callback_data="admin_list_admins"),
         types.InlineKeyboardButton("إضافة حزورة ➕", callback_data="admin_add_riddle"),
         types.InlineKeyboardButton("حذف حزورة ❌", callback_data="admin_del_riddle"),
         types.InlineKeyboardButton("إضافة سؤال ➕", callback_data="admin_add_q"),
@@ -546,16 +660,17 @@ def show_admin_panel(chat_id):
 
 @bot.message_handler(commands=['admin'])
 def admin_command(message):
-    if message.from_user.id == ADMIN_ID:
+    if is_admin(message.from_user.id):
         show_admin_panel(message.chat.id)
 
 @bot.callback_query_handler(func=lambda call: call.data == "open_admin_panel" or call.data.startswith('admin_'))
 def handle_admin_actions(call):
-    if call.from_user.id != ADMIN_ID:
-        bot.answer_callback_query(call.id, "عذراً، هذا الزر مخصص لمدير البوت فقط!", show_alert=True)
+    if not is_admin(call.from_user.id):
+        bot.answer_callback_query(call.id, "عذراً، هذا الزر مخصص لمدير البوت والأدمنية فقط!", show_alert=True)
         return
     
     chat_id = call.message.chat.id
+    user_id = call.from_user.id
 
     if call.data == "open_admin_panel":
         show_admin_panel(chat_id)
@@ -563,9 +678,28 @@ def handle_admin_actions(call):
 
     action = call.data.replace('admin_', '')
 
-    if action == "add_riddle":
-        admin_states[ADMIN_ID] = "wait_riddle_q"
+    if action == "add_admin":
+        admin_states[user_id] = "wait_admin_id"
+        bot.send_message(chat_id, "أرسل **آيدي (ID)** العضو المراد رفعه كـ أدمن:")
+
+    elif action == "list_admins":
+        conn = sqlite3.connect("bot_data.db")
+        c = conn.cursor()
+        c.execute("SELECT user_id FROM admins")
+        admins = c.fetchall()
+        conn.close()
+        
+        msg = "👥 **قائمة المشرفين والأدمنية:**\n\n"
+        msg += f"• 👑 **المدير الرئيسي:** `{ADMIN_ID}`\n"
+        for a in admins:
+            msg += f"• 👤 **ادمن:** `{a[0]}`\n"
+        msg += "\nلإزالة أدمن أرسل الأمر: `حذف ادمن [ID]`"
+        bot.send_message(chat_id, msg, parse_mode="Markdown")
+
+    elif action == "add_riddle":
+        admin_states[user_id] = "wait_riddle_q"
         bot.send_message(chat_id, "أرسل نص الحزورة الآن:")
+
     elif action == "del_riddle":
         conn = sqlite3.connect("bot_data.db")
         c = conn.cursor()
@@ -577,14 +711,15 @@ def handle_admin_actions(call):
             for item in items:
                 msg += f"ID: `{item[0]}` - {item[1]}\n"
             msg += "\nأرسل **رقم (ID)** الحزورة المراد حذفها:"
-            admin_states[ADMIN_ID] = "wait_del_riddle_id"
+            admin_states[user_id] = "wait_del_riddle_id"
             bot.send_message(chat_id, msg, parse_mode="Markdown")
         else:
             bot.send_message(chat_id, "لا توجد حزازير لحذفها.")
 
     elif action == "add_q":
-        admin_states[ADMIN_ID] = "wait_q_text"
+        admin_states[user_id] = "wait_q_text"
         bot.send_message(chat_id, "أرسل السؤال الجديد:")
+
     elif action == "del_q":
         conn = sqlite3.connect("bot_data.db")
         c = conn.cursor()
@@ -596,14 +731,15 @@ def handle_admin_actions(call):
             for item in items:
                 msg += f"ID: `{item[0]}` - {item[1]}\n"
             msg += "\nأرسل **رقم (ID)** السؤال المراد حذفه:"
-            admin_states[ADMIN_ID] = "wait_del_q_id"
+            admin_states[user_id] = "wait_del_q_id"
             bot.send_message(chat_id, msg, parse_mode="Markdown")
         else:
             bot.send_message(chat_id, "لا توجد أسئلة لحذفها.")
 
     elif action == "add_rep":
-        admin_states[ADMIN_ID] = "wait_rep_key"
+        admin_states[user_id] = "wait_rep_key"
         bot.send_message(chat_id, "أرسل الكلمة المفتاحية للرد:")
+
     elif action == "del_rep":
         conn = sqlite3.connect("bot_data.db")
         c = conn.cursor()
@@ -615,7 +751,7 @@ def handle_admin_actions(call):
             for item in items:
                 msg += f"ID: `{item[0]}` | الكلمة: `{item[1]}` 👈 الرد: {item[2]}\n"
             msg += "\nأرسل **رقم (ID)** الرد المراد حذفه:"
-            admin_states[ADMIN_ID] = "wait_del_rep_id"
+            admin_states[user_id] = "wait_del_rep_id"
             bot.send_message(chat_id, msg, parse_mode="Markdown")
         else:
             bot.send_message(chat_id, "لا توجد ردود مضافة.")
@@ -635,8 +771,9 @@ def handle_admin_actions(call):
             bot.send_message(chat_id, "لا توجد ردود مضافة بعد.")
 
     elif action == "add_store":
-        admin_states[ADMIN_ID] = "wait_store_name"
+        admin_states[user_id] = "wait_store_name"
         bot.send_message(chat_id, "أرسل اسم الصنف الجديد:")
+
     elif action == "del_store":
         conn = sqlite3.connect("bot_data.db")
         c = conn.cursor()
@@ -648,7 +785,7 @@ def handle_admin_actions(call):
             for item in items:
                 msg += f"- `{item[0]}` (السعر: {item[1]})\n"
             msg += "\nأرسل **اسم الصنف** المراد حذفه:"
-            admin_states[ADMIN_ID] = "wait_del_store_name"
+            admin_states[user_id] = "wait_del_store_name"
             bot.send_message(chat_id, msg, parse_mode="Markdown")
         else:
             bot.send_message(chat_id, "المتجر فارغ حالياً.")
@@ -666,21 +803,48 @@ def handle_admin_actions(call):
         bot.send_message(chat_id, text, parse_mode="Markdown")
 
 def handle_admin_inputs(message):
-    state = admin_states[ADMIN_ID]
+    user_id = message.from_user.id
+    state = admin_states.get(user_id)
     text = message.text.strip()
     chat_id = message.chat.id
 
-    if state == "wait_riddle_q":
-        admin_states['temp_riddle_q'] = text
-        admin_states[ADMIN_ID] = "wait_riddle_a"
+    # التعامل مع أمر حذف ادمن
+    if text.startswith("حذف ادمن"):
+        parts = text.split()
+        if len(parts) == 3 and parts[2].isdigit():
+            del_id = int(parts[2])
+            conn = sqlite3.connect("bot_data.db")
+            conn.execute("DELETE FROM admins WHERE user_id = ?", (del_id,))
+            conn.commit()
+            conn.close()
+            bot.send_message(chat_id, f"🗑️ تم حذف الأدمن `{del_id}` بنجاح!", parse_mode="Markdown")
+            del admin_states[user_id]
+            return
+
+    if state == "wait_admin_id":
+        if text.isdigit():
+            new_admin_id = int(text)
+            conn = sqlite3.connect("bot_data.db")
+            conn.execute("INSERT OR IGNORE INTO admins VALUES (?)", (new_admin_id,))
+            conn.commit()
+            conn.close()
+            bot.send_message(chat_id, f"✅ تم إضافة العضو `{new_admin_id}` كـ أدمن بنجاح وله صلاحية اللوحة!", parse_mode="Markdown")
+        else:
+            bot.send_message(chat_id, "❌ الآيدي يجب أن يكون أرقاماً فقط.")
+        del admin_states[user_id]
+
+    elif state == "wait_riddle_q":
+        admin_states[f'{user_id}_temp_riddle_q'] = text
+        admin_states[user_id] = "wait_riddle_a"
         bot.send_message(chat_id, "أرسل إجابة الحزورة:")
+
     elif state == "wait_riddle_a":
-        q = admin_states.pop('temp_riddle_q')
+        q = admin_states.pop(f'{user_id}_temp_riddle_q')
         conn = sqlite3.connect("bot_data.db")
         conn.execute("INSERT INTO riddles (question, answer) VALUES (?, ?)", (q, text))
         conn.commit()
         conn.close()
-        del admin_states[ADMIN_ID]
+        del admin_states[user_id]
         bot.send_message(chat_id, "✅ تمت إضافة الحزورة بنجاح!")
 
     elif state == "wait_del_riddle_id":
@@ -692,14 +856,14 @@ def handle_admin_inputs(message):
             bot.send_message(chat_id, "🗑️ تم حذف الحزورة بنجاح!")
         else:
             bot.send_message(chat_id, "يرجى إرسال رقم صحيح.")
-        del admin_states[ADMIN_ID]
+        del admin_states[user_id]
 
     elif state == "wait_q_text":
         conn = sqlite3.connect("bot_data.db")
         conn.execute("INSERT INTO questions (question) VALUES (?)", (text,))
         conn.commit()
         conn.close()
-        del admin_states[ADMIN_ID]
+        del admin_states[user_id]
         bot.send_message(chat_id, "✅ تمت إضافة السؤال بنجاح!")
 
     elif state == "wait_del_q_id":
@@ -711,19 +875,20 @@ def handle_admin_inputs(message):
             bot.send_message(chat_id, "🗑️ تم حذف السؤال بنجاح!")
         else:
             bot.send_message(chat_id, "يرجى إرسال رقم صحيح.")
-        del admin_states[ADMIN_ID]
+        del admin_states[user_id]
 
     elif state == "wait_rep_key":
-        admin_states['temp_rep_key'] = text
-        admin_states[ADMIN_ID] = "wait_rep_val"
-        bot.send_message(chat_id, f"أرسل نص الرد للكلمة `{text}` (يمكنك إضافة ردود إضافية لنفس الكلمة بنفس الطريقة):", parse_mode="Markdown")
+        admin_states[f'{user_id}_temp_rep_key'] = text
+        admin_states[user_id] = "wait_rep_val"
+        bot.send_message(chat_id, f"أرسل نص الرد للكلمة `{text}`:", parse_mode="Markdown")
+
     elif state == "wait_rep_val":
-        k = admin_states.pop('temp_rep_key')
+        k = admin_states.pop(f'{user_id}_temp_rep_key')
         conn = sqlite3.connect("bot_data.db")
         conn.execute("INSERT INTO custom_replies (keyword, response) VALUES (?, ?)", (k, text))
         conn.commit()
         conn.close()
-        del admin_states[ADMIN_ID]
+        del admin_states[user_id]
         bot.send_message(chat_id, "✅ تمت إضافة الرد بنجاح!")
 
     elif state == "wait_del_rep_id":
@@ -735,14 +900,15 @@ def handle_admin_inputs(message):
             bot.send_message(chat_id, "🗑️ تم حذف الرد المحدد بنجاح!")
         else:
             bot.send_message(chat_id, "يرجى إرسال رقم ID صحيح.")
-        del admin_states[ADMIN_ID]
+        del admin_states[user_id]
 
     elif state == "wait_store_name":
-        admin_states['temp_store_name'] = text
-        admin_states[ADMIN_ID] = "wait_store_price"
+        admin_states[f'{user_id}_temp_store_name'] = text
+        admin_states[user_id] = "wait_store_price"
         bot.send_message(chat_id, "أرسل سعر الصنف:")
+
     elif state == "wait_store_price":
-        name = admin_states.pop('temp_store_name')
+        name = admin_states.pop(f'{user_id}_temp_store_name')
         if text.isdigit():
             conn = sqlite3.connect("bot_data.db")
             conn.execute("INSERT OR REPLACE INTO store VALUES (?, ?)", (name, int(text)))
@@ -751,17 +917,17 @@ def handle_admin_inputs(message):
             bot.send_message(chat_id, "✅ تمت إضافة الصنف للمتجر بنجاح!")
         else:
             bot.send_message(chat_id, "السعر يجب أن يكون رقماً!")
-        del admin_states[ADMIN_ID]
+        del admin_states[user_id]
 
     elif state == "wait_del_store_name":
         conn = sqlite3.connect("bot_data.db")
         conn.execute("DELETE FROM store WHERE item_name = ?", (text,))
         conn.commit()
         conn.close()
-        del admin_states[ADMIN_ID]
+        del admin_states[user_id]
         bot.send_message(chat_id, "🗑️ تم حذف الصنف من المتجر!")
 
-# تشغيل البوت والسيرفر
+# ==================== تشغيل البوت ====================
 if __name__ == "__main__":
     keep_alive()
     bot.infinity_polling(skip_pending=True)
