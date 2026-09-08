@@ -18,14 +18,12 @@ def init_db():
     conn = sqlite3.connect("bot_data.db")
     cursor = conn.cursor()
     
-    # جدول المستخدمين
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
             balance INTEGER DEFAULT 0
         )
     """)
-    # جدول الممتلكات
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS inventory (
             user_id INTEGER,
@@ -34,14 +32,12 @@ def init_db():
             PRIMARY KEY (user_id, item_name)
         )
     """)
-    # جدول المتجر
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS store (
             item_name TEXT PRIMARY KEY,
             price INTEGER
         )
     """)
-    # جدول الحزازير
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS riddles (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -49,21 +45,18 @@ def init_db():
             answer TEXT
         )
     """)
-    # جدول أسئلة "اسألني"
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS questions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             question TEXT
         )
     """)
-    # جدول الردود التلقائية
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS custom_replies (
             keyword TEXT PRIMARY KEY,
             response TEXT
         )
     """)
-    # جدول المجموعات
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS groups (
             chat_id INTEGER PRIMARY KEY,
@@ -71,7 +64,6 @@ def init_db():
         )
     """)
 
-    # إضافة عناصر المتجر الافتراضية والحزازير
     cursor.execute("INSERT OR IGNORE INTO store VALUES ('علبة متة', 50)")
     cursor.execute("INSERT OR IGNORE INTO store VALUES ('كيلو سكر', 100)")
     cursor.execute("INSERT OR IGNORE INTO riddles (question, answer) VALUES ('من رئيس سوريا الحالي', 'احمد شرع')")
@@ -81,7 +73,6 @@ def init_db():
 
 init_db()
 
-# حالات الانتظار (ChatGPT والإدارة)
 user_states = {}
 admin_states = {}
 active_riddles = {}
@@ -110,54 +101,96 @@ def update_balance(user_id, amount):
     conn.commit()
     conn.close()
 
-# ==================== الحماية والإشراف ====================
-@bot.message_handler(func=lambda message: message.chat.type in ['group', 'supergroup'])
-def group_moderation_and_router(message):
-    chat_id = message.chat.id
-    
-    # تسجيل المجموعات
-    conn = sqlite3.connect("bot_data.db")
-    c = conn.cursor()
-    c.execute("INSERT OR IGNORE INTO groups VALUES (?, ?)", (chat_id, message.chat.title))
-    conn.commit()
-    conn.close()
+# ==================== رسالة الترحيب /start و ستارت ====================
+def send_welcome_message(message):
+    user_id = message.from_user.id
+    try:
+        bot_username = bot.get_me().username
+    except:
+        bot_username = "Bot"
 
-    # التحقق من صلاحيات المشرف
-    if not is_bot_admin(chat_id):
+    welcome_text = (
+        "👋 **أهلاً بك في بوت إدارة المجموعات والتسلية الشامل!**\n\n"
+        "✨ **مميزات البوت:**\n"
+        "🛡️ **حماية المجموعة:** منع الروابط، المعرفات، والرسائل المحولة تلقائياً.\n"
+        "🎮 **ألعاب وتسلية:** لعبة XO التفاعلية وحزازير ممتعة.\n"
+        "💰 **نظام اقتصادي:** رصيد وهمي، متجر مشتريات، وسجل ممتلكات.\n"
+        "🤖 **ذكاء اصطناعي:** إجابة عن الأسئلة عند كتابة 'بدي اسالك'.\n"
+        "🎵 **موسيقى:** البحث والاستماع للأغاني بـ 'سمعني [اسم الأغنية]'.\n"
+        "💬 **ردود مخصصة وأسئلة تفاعلية.**\n\n"
+        "👇 اضغط على الزر أدناه لإضافة البوت إلى مجموعتك وترقيته لمشرف:"
+    )
+
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    add_group_btn = types.InlineKeyboardButton(
+        "➕ أضفني إلى المجموعة", 
+        url=f"https://t.me/{bot_username}?startgroup=true"
+    )
+    markup.add(add_group_btn)
+
+    if user_id == ADMIN_ID:
+        admin_btn = types.InlineKeyboardButton("⚙️ لوحة الإدارة", callback_data="open_admin_panel")
+        markup.add(admin_btn)
+
+    bot.reply_to(message, welcome_text, reply_markup=markup, parse_mode="Markdown")
+
+# ==================== الموجه الرئيسي والحماية ====================
+@bot.message_handler(func=lambda message: True)
+def main_router(message):
+    text = (message.text or "").strip()
+    chat_type = message.chat.type
+
+    # الاستجابة لأمر /start أو كلمة "ستارت"
+    if text.startswith("/start") or text.lower() == "ستارت":
+        send_welcome_message(message)
         return
 
-    # 1. منع الرسائل المحولة
-    if message.forward_date or message.forward_from or message.forward_from_chat:
-        try:
-            bot.delete_message(chat_id, message.message_id)
-            bot.send_message(chat_id, "مافيك تنسخا نسخ يعني؟")
-        except:
-            pass
-        return
+    # معالجة حماية المجموعات
+    if chat_type in ['group', 'supergroup']:
+        chat_id = message.chat.id
+        
+        conn = sqlite3.connect("bot_data.db")
+        c = conn.cursor()
+        c.execute("INSERT OR IGNORE INTO groups VALUES (?, ?)", (chat_id, message.chat.title))
+        conn.commit()
+        conn.close()
 
-    text = message.text or ""
+        if not is_bot_admin(chat_id):
+            return
 
-    # 2. منع الروابط والمعرفات
-    has_link = bool(re.search(r'(https?://\S+|t\.me/\S+|\b\w+\.(com|net|org|site|online)\b)', text))
-    has_username = bool(re.search(r'@[a-zA-Z0-9_]+', text))
+        # 1. منع الرسائل المحولة
+        if message.forward_date or message.forward_from or message.forward_from_chat:
+            try:
+                bot.delete_message(chat_id, message.message_id)
+                bot.send_message(chat_id, "مافيك تنسخا نسخ يعني؟")
+            except:
+                pass
+            return
 
-    if has_link or has_username:
-        try:
-            bot.delete_message(chat_id, message.message_id)
-            bot.send_message(chat_id, "بس يا ابني كفاك روابط")
-        except:
-            pass
-        return
+        # 2. منع الروابط والمعرفات
+        has_link = bool(re.search(r'(https?://\S+|t\.me/\S+|\b\w+\.(com|net|org|site|online)\b)', text))
+        has_username = bool(re.search(r'@[a-zA-Z0-9_]+', text))
 
-    # متابعة معالجة الأوامر والردود
-    process_bot_commands(message)
+        if has_link or has_username:
+            try:
+                bot.delete_message(chat_id, message.message_id)
+                bot.send_message(chat_id, "بس يا ابني كفاك روابط")
+            except:
+                pass
+            return
 
+    # معالجة الأوامر العامة والمدخلات
+    if message.from_user.id == ADMIN_ID and ADMIN_ID in admin_states:
+        handle_admin_inputs(message)
+    else:
+        process_bot_commands(message)
+
+# ==================== معالجة أوامر البوت ====================
 def process_bot_commands(message):
     text = (message.text or "").strip()
     user_id = message.from_user.id
     chat_id = message.chat.id
 
-    # نظام الردود المخصصة
     conn = sqlite3.connect("bot_data.db")
     c = conn.cursor()
     c.execute("SELECT response FROM custom_replies WHERE keyword = ?", (text,))
@@ -167,7 +200,6 @@ def process_bot_commands(message):
         bot.reply_to(message, reply[0])
         return
 
-    # الرد على الحزازير النشطة
     if chat_id in active_riddles:
         correct_ans = active_riddles[chat_id]
         if text.lower() == correct_ans.lower():
@@ -176,7 +208,6 @@ def process_bot_commands(message):
             del active_riddles[chat_id]
             return
 
-    # ChatGPT state
     if user_states.get(user_id) == 'waiting_ai_question':
         user_states[user_id] = None
         bot.send_chat_action(chat_id, 'typing')
@@ -188,7 +219,6 @@ def process_bot_commands(message):
         bot.reply_to(message, response_text)
         return
 
-    # الأوامر الأساسية
     if text == "اكسني":
         msg = bot.send_message(chat_id, f"لعبة XO جديدة!\nأنشأ اللعبة: {message.from_user.first_name}\nاضغط على الزر للانضمام والبدء.", reply_markup=get_xo_keyboard(None, user_id))
         return
@@ -312,7 +342,7 @@ def process_bot_commands(message):
                         bot.send_message(chat_id, f"🎵 **{title}**\n\n🔗 [رابط الاستماع على يوتيوب]({url})", parse_mode="Markdown")
                     else:
                         bot.reply_to(message, "لم يتم العثور على نتائح.")
-            except Exception as e:
+            except Exception:
                 bot.reply_to(message, "حدث خطأ أثناء البحث عن الأغنية.")
         return
 
@@ -384,7 +414,6 @@ def handle_xo_callbacks(call):
 
         game['board'][idx] = game['symbols'][user_id]
         
-        # فحص الفوز
         wins = [(0,1,2), (3,4,5), (6,7,8), (0,3,6), (1,4,7), (2,5,8), (0,4,8), (2,4,6)]
         winner = None
         for a, b, c in wins:
@@ -403,11 +432,8 @@ def handle_xo_callbacks(call):
             next_sym = game['symbols'][game['turn']]
             bot.edit_message_text(f"دور اللاعب {next_sym}", chat_id, msg_id, reply_markup=get_xo_keyboard(game))
 
-# ==================== لوحة الإدارة ====================
-@bot.message_handler(commands=['admin'])
-def admin_panel(message):
-    if message.from_user.id != ADMIN_ID:
-        return
+# ==================== لوحة الإدارة المتكاملة ====================
+def show_admin_panel(chat_id):
     markup = types.InlineKeyboardMarkup(row_width=2)
     markup.add(
         types.InlineKeyboardButton("إضافة حزورة ➕", callback_data="admin_add_riddle"),
@@ -420,46 +446,124 @@ def admin_panel(message):
         types.InlineKeyboardButton("حذف صنف ❌", callback_data="admin_del_store"),
         types.InlineKeyboardButton("سجل الكروبات 📋", callback_data="admin_list_groups")
     )
-    bot.send_message(message.chat.id, "أهلاً بك في لوحة التحكم الإدارية:", reply_markup=markup)
+    bot.send_message(chat_id, "⚙️ **لوحة التحكم الإدارية الاحترافية:**", reply_markup=markup, parse_mode="Markdown")
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith('admin_'))
+@bot.message_handler(commands=['admin'])
+def admin_command(message):
+    if message.from_user.id == ADMIN_ID:
+        show_admin_panel(message.chat.id)
+
+@bot.callback_query_handler(func=lambda call: call.data == "open_admin_panel" or call.data.startswith('admin_'))
 def handle_admin_actions(call):
     if call.from_user.id != ADMIN_ID:
+        bot.answer_callback_query(call.id, "عذراً، هذا الزر مخصص لمدير البوت فقط!", show_alert=True)
         return
     
-    action = call.data.replace('admin_', '')
     chat_id = call.message.chat.id
+
+    if call.data == "open_admin_panel":
+        show_admin_panel(chat_id)
+        return
+
+    action = call.data.replace('admin_', '')
 
     if action == "add_riddle":
         admin_states[ADMIN_ID] = "wait_riddle_q"
         bot.send_message(chat_id, "أرسل نص الحزورة الآن:")
+    elif action == "del_riddle":
+        conn = sqlite3.connect("bot_data.db")
+        c = conn.cursor()
+        c.execute("SELECT id, question FROM riddles")
+        items = c.fetchall()
+        conn.close()
+        if items:
+            msg = "📋 **الحزازير المتوفرة:**\n\n"
+            for item in items:
+                msg += f"ID: `{item[0]}` - {item[1]}\n"
+            msg += "\nأرسل **رقم (ID)** الحزورة المراد حذفها:"
+            admin_states[ADMIN_ID] = "wait_del_riddle_id"
+            bot.send_message(chat_id, msg, parse_mode="Markdown")
+        else:
+            bot.send_message(chat_id, "لا توجد حزازير لحذفها.")
+
     elif action == "add_q":
         admin_states[ADMIN_ID] = "wait_q_text"
         bot.send_message(chat_id, "أرسل السؤال الجديد:")
+    elif action == "del_q":
+        conn = sqlite3.connect("bot_data.db")
+        c = conn.cursor()
+        c.execute("SELECT id, question FROM questions")
+        items = c.fetchall()
+        conn.close()
+        if items:
+            msg = "📋 **الأسئلة المتوفرة:**\n\n"
+            for item in items:
+                msg += f"ID: `{item[0]}` - {item[1]}\n"
+            msg += "\nأرسل **رقم (ID)** السؤال المراد حذفه:"
+            admin_states[ADMIN_ID] = "wait_del_q_id"
+            bot.send_message(chat_id, msg, parse_mode="Markdown")
+        else:
+            bot.send_message(chat_id, "لا توجد أسئلة لحذفها.")
+
     elif action == "add_rep":
         admin_states[ADMIN_ID] = "wait_rep_key"
         bot.send_message(chat_id, "أرسل الكلمة المفتاحية للرد:")
+    elif action == "del_rep":
+        conn = sqlite3.connect("bot_data.db")
+        c = conn.cursor()
+        c.execute("SELECT keyword, response FROM custom_replies")
+        items = c.fetchall()
+        conn.close()
+        if items:
+            msg = "📋 **الردود المتوفرة:**\n\n"
+            for item in items:
+                msg += f"- الكلمة: `{item[0]}` -> الرد: {item[1]}\n"
+            msg += "\nأرسل **الكلمة المفتاحية** المراد حذف ردها:"
+            admin_states[ADMIN_ID] = "wait_del_rep_key"
+            bot.send_message(chat_id, msg, parse_mode="Markdown")
+        else:
+            bot.send_message(chat_id, "لا توجد ردود مضافة.")
+
     elif action == "add_store":
         admin_states[ADMIN_ID] = "wait_store_name"
         bot.send_message(chat_id, "أرسل اسم الصنف الجديد:")
+    elif action == "del_store":
+        conn = sqlite3.connect("bot_data.db")
+        c = conn.cursor()
+        c.execute("SELECT item_name, price FROM store")
+        items = c.fetchall()
+        conn.close()
+        if items:
+            msg = "📋 **أصناف المتجر:**\n\n"
+            for item in items:
+                msg += f"- `{item[0]}` (السعر: {item[1]})\n"
+            msg += "\nأرسل **اسم الصنف** المراد حذفه:"
+            admin_states[ADMIN_ID] = "wait_del_store_name"
+            bot.send_message(chat_id, msg, parse_mode="Markdown")
+        else:
+            bot.send_message(chat_id, "المتجر فارغ حالياً.")
+
     elif action == "list_groups":
         conn = sqlite3.connect("bot_data.db")
         c = conn.cursor()
         c.execute("SELECT title FROM groups")
         groups = c.fetchall()
         conn.close()
-        text = "📋 **المجموعات المضافة:**\n\n" + "\n".join([g[0] for g in groups])
+        if groups:
+            text = "📋 **المجموعات المضافة:**\n\n" + "\n".join([f"- {g[0]}" for g in groups])
+        else:
+            text = "لا توجد مجموعات مسجلة بعد."
         bot.send_message(chat_id, text, parse_mode="Markdown")
 
-@bot.message_handler(func=lambda msg: msg.from_user.id == ADMIN_ID and ADMIN_ID in admin_states)
 def handle_admin_inputs(message):
     state = admin_states[ADMIN_ID]
-    text = message.text
+    text = message.text.strip()
+    chat_id = message.chat.id
 
     if state == "wait_riddle_q":
         admin_states['temp_riddle_q'] = text
         admin_states[ADMIN_ID] = "wait_riddle_a"
-        bot.send_message(message.chat.id, "أرسل إجابة الحزورة:")
+        bot.send_message(chat_id, "أرسل إجابة الحزورة:")
     elif state == "wait_riddle_a":
         q = admin_states.pop('temp_riddle_q')
         conn = sqlite3.connect("bot_data.db")
@@ -467,20 +571,43 @@ def handle_admin_inputs(message):
         conn.commit()
         conn.close()
         del admin_states[ADMIN_ID]
-        bot.send_message(message.chat.id, "تمت إضافة الحزورة بنجاح!")
-    
+        bot.send_message(chat_id, "✅ تمت إضافة الحزورة بنجاح!")
+
+    elif state == "wait_del_riddle_id":
+        if text.isdigit():
+            conn = sqlite3.connect("bot_data.db")
+            c = conn.cursor()
+            c.execute("DELETE FROM riddles WHERE id = ?", (int(text),))
+            conn.commit()
+            conn.close()
+            bot.send_message(chat_id, "🗑️ تم حذف الحزورة بنجاح!")
+        else:
+            bot.send_message(chat_id, "يرجى إرسال رقم صحيح.")
+        del admin_states[ADMIN_ID]
+
     elif state == "wait_q_text":
         conn = sqlite3.connect("bot_data.db")
         conn.execute("INSERT INTO questions (question) VALUES (?)", (text,))
         conn.commit()
         conn.close()
         del admin_states[ADMIN_ID]
-        bot.send_message(message.chat.id, "تمت إضافة السؤال بنجاح!")
+        bot.send_message(chat_id, "✅ تمت إضافة السؤال بنجاح!")
+
+    elif state == "wait_del_q_id":
+        if text.isdigit():
+            conn = sqlite3.connect("bot_data.db")
+            conn.execute("DELETE FROM questions WHERE id = ?", (int(text),))
+            conn.commit()
+            conn.close()
+            bot.send_message(chat_id, "🗑️ تم حذف السؤال بنجاح!")
+        else:
+            bot.send_message(chat_id, "يرجى إرسال رقم صحيح.")
+        del admin_states[ADMIN_ID]
 
     elif state == "wait_rep_key":
         admin_states['temp_rep_key'] = text
         admin_states[ADMIN_ID] = "wait_rep_val"
-        bot.send_message(message.chat.id, "أرسل نص الرد:")
+        bot.send_message(chat_id, "أرسل نص الرد:")
     elif state == "wait_rep_val":
         k = admin_states.pop('temp_rep_key')
         conn = sqlite3.connect("bot_data.db")
@@ -488,12 +615,20 @@ def handle_admin_inputs(message):
         conn.commit()
         conn.close()
         del admin_states[ADMIN_ID]
-        bot.send_message(message.chat.id, "تمت إضافة الرد بنجاح!")
+        bot.send_message(chat_id, "✅ تمت إضافة الرد التلقائي بنجاح!")
+
+    elif state == "wait_del_rep_key":
+        conn = sqlite3.connect("bot_data.db")
+        conn.execute("DELETE FROM custom_replies WHERE keyword = ?", (text,))
+        conn.commit()
+        conn.close()
+        del admin_states[ADMIN_ID]
+        bot.send_message(chat_id, "🗑️ تم حذف الرد بنجاح!")
 
     elif state == "wait_store_name":
         admin_states['temp_store_name'] = text
         admin_states[ADMIN_ID] = "wait_store_price"
-        bot.send_message(message.chat.id, "أرسل سعر الصنف:")
+        bot.send_message(chat_id, "أرسل سعر الصنف:")
     elif state == "wait_store_price":
         name = admin_states.pop('temp_store_name')
         if text.isdigit():
@@ -501,10 +636,18 @@ def handle_admin_inputs(message):
             conn.execute("INSERT OR REPLACE INTO store VALUES (?, ?)", (name, int(text)))
             conn.commit()
             conn.close()
-            bot.send_message(message.chat.id, "تمت إضافة الصنف بنجاح!")
+            bot.send_message(chat_id, "✅ تمت إضافة الصنف للمتجر بنجاح!")
         else:
-            bot.send_message(message.chat.id, "السعر يجب أن يكون رقماً!")
+            bot.send_message(chat_id, "السعر يجب أن يكون رقماً!")
         del admin_states[ADMIN_ID]
+
+    elif state == "wait_del_store_name":
+        conn = sqlite3.connect("bot_data.db")
+        conn.execute("DELETE FROM store WHERE item_name = ?", (text,))
+        conn.commit()
+        conn.close()
+        del admin_states[ADMIN_ID]
+        bot.send_message(chat_id, "🗑️ تم حذف الصنف من المتجر!")
 
 # تشغيل البوت والسيرفر
 if __name__ == "__main__":
