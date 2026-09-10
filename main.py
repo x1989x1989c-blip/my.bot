@@ -199,8 +199,10 @@ def is_user_jailed(user_id):
             return True, amount
     return False, 0
 
-def clean_urls(text):
-    return re.sub(r'https?://\S+|www\.\S+|t\.me/\S+', '', text).strip()
+def clean_urls_and_sources(text):
+    text = re.sub(r'https?://\S+|www\.\S+|t\.me/\S+', '', text)
+    text = re.sub(r'(📌\s*المصادر:?|🔗\s*المصدر:?|المصدر:|المصادر:)', '', text)
+    return text.strip()
 
 def send_large_text(chat_id, header, items_list):
     if not items_list:
@@ -211,66 +213,75 @@ def send_large_text(chat_id, header, items_list):
     for item in items_list:
         line = f"• {item}\n"
         if len(current_msg) + len(line) > 3500:
-            bot.send_message(chat_id, current_msg, parse_mode="Markdown")
+            bot.send_message(chat_id, current_msg)
             current_msg = ""
         current_msg += line
     if current_msg:
-        bot.send_message(chat_id, current_msg, parse_mode="Markdown")
+        bot.send_message(chat_id, current_msg)
 
-# ==================== محرك البحث والذكاء الاصطناعي (بدون روابط وبدون ذكر المصدر) ====================
+# ==================== محرك البحث والذكاء الاصطناعي (مباشر وبدون روابط) ====================
 def fetch_ai_answer(question):
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
         "Accept-Language": "ar,en-US;q=0.9,en;q=0.8"
     }
 
-    sys_prompt = "أنت مساعد ذكي ومحرك بحث متمكن. أجب على السؤال التالي باللغة العربية بأسلوب مباشر، منطقي، وشامل. يُمنع منعاً باتاً ذكر مصادر المعلومة، أو وضع أي روابط أو مواقع، أو الإشارة إلى أنك جلبتها من البحث. قدم الإجابة المباشرة فقط بدون مقدمات."
+    sys_prompt = "أنت مساعد ذكي واسمك فرفوش. أجب عن سؤال المستخدم باللغة العربية بشكل دقيق ومباشر ومنطقي. يمنع منعاً باتاً ذكر أي روابط أو مواقع أو الإشارة إلى المصادر. إجابتك يجب أن تكون المضمون المباشر فقط."
 
-    # 1. المحاولة عبر محرك البحث والذكاء الاصطناعي السريع
+    # 1. المحاولة عبر نموذج ذكاء اصطناعي ذكي وسريع يجيب فوراً وبشكل منطقي
     try:
         url = f"https://text.pollinations.ai/{requests.utils.quote(question)}?system={requests.utils.quote(sys_prompt)}&model=openai"
-        res = requests.get(url, headers=headers, timeout=7)
+        res = requests.get(url, headers=headers, timeout=8)
         if res.status_code == 200 and res.text:
-            ans = clean_urls(res.text.strip())
-            if ans and not any(bad in ans.lower() for bad in ["timed out", "error", "504", "403", "html", "bad gateway"]):
+            ans = clean_urls_and_sources(res.text)
+            if ans and not any(bad in ans.lower() for bad in ["timed out", "error", "504", "403", "html", "cloudflare"]):
                 return ans
     except Exception:
         pass
 
-    # 2. المحاولة الاحتياطية عبر نموذج متطور آخر
+    # 2. نموذج احتياطي ثانٍ للسرعة
     try:
-        url = f"https://text.pollinations.ai/{requests.utils.quote(question)}?system={requests.utils.quote(sys_prompt)}&model=mistral"
-        res = requests.get(url, headers=headers, timeout=7)
+        url = f"https://text.pollinations.ai/{requests.utils.quote(question)}?system={requests.utils.quote(sys_prompt)}&model=qwen"
+        res = requests.get(url, headers=headers, timeout=8)
         if res.status_code == 200 and res.text:
-            ans = clean_urls(res.text.strip())
-            if ans and not any(bad in ans.lower() for bad in ["timed out", "error", "504", "403", "html"]):
+            ans = clean_urls_and_sources(res.text)
+            if ans and not any(bad in ans.lower() for bad in ["timed out", "error", "504", "403", "html", "cloudflare"]):
                 return ans
     except Exception:
         pass
 
-    # 3. جلب نتائج بحث نصوص صافية وبدون روابط كخيار أخير
+    # 3. جلب نصوص النتائج المباشرة من الويب بدون روابط
     try:
         ddg_url = f"https://html.duckduckgo.com/html/?q={requests.utils.quote(question)}"
         res = requests.get(ddg_url, headers=headers, timeout=6)
         if res.status_code == 200:
             from bs4 import BeautifulSoup
             soup = BeautifulSoup(res.text, 'html.parser')
-            results = soup.find_all('div', class_='result')
+            results = soup.find_all('a', class_='result__snippet')
             snippets = []
-            for r in results[:2]:
-                snippet_tag = r.find('a', class_='result__snippet')
-                if snippet_tag:
-                    snip = clean_urls(snippet_tag.get_text().strip())
-                    if snip:
-                        snippets.append(snip)
+            for r in results[:3]:
+                snip = clean_urls_and_sources(r.get_text().strip())
+                if snip:
+                    snippets.append(snip)
             if snippets:
                 return "\n\n".join(snippets)
     except Exception:
         pass
 
-    return "عذراً، لم أستطع العثور على إجابة دقيقة حالياً، يرجى إعادة المحاولة لاحقاً."
+    # 4. محاولة جلب ملخص معلوماتي من ويكيبيديا للأسئلة الثقافية
+    try:
+        wiki_url = f"https://ar.wikipedia.org/api/rest_v1/page/summary/{requests.utils.quote(question)}"
+        res = requests.get(wiki_url, headers=headers, timeout=5)
+        if res.status_code == 200:
+            data = res.json()
+            if "extract" in data and data["extract"]:
+                return clean_urls_and_sources(data["extract"])
+    except Exception:
+        pass
 
-# ==================== خدمة تحميل الأغاني المعدلة والمتطورة ====================
+    return "عذراً، تعذر الوصول إلى الإجابة حالياً. يرجى إعادة المحاولة لاحقاً."
+
+# ==================== خدمة تحميل الأغاني ====================
 def download_and_send_audio(chat_id, query, message_id):
     status_msg = bot.send_message(chat_id, f"🔍 جاري البحث وتحميل الأغنية: **{query}**...", parse_mode="Markdown")
     if not os.path.exists('downloads'):
@@ -560,14 +571,14 @@ def process_bot_commands(message):
             del active_guess_games[chat_id]
             return
 
-    # 5. الذكاء الاصطناعي وجوجل (بدي اسالك)
+    # 5. الذكاء الاصطناعي والبحث الفوري (بدي اسالك)
     if text.startswith("بدي اسالك"):
         question = text.replace("بدي اسالك", "").strip()
         if not question:
-            bot.reply_to(message, "تفضل اكتب سؤالك بعد الأمر مباشرة.\nمثال: `بدي اسالك كيف اجني مال`", parse_mode="Markdown")
+            bot.reply_to(message, "تفضل اكتب سؤالك بعد الأمر مباشرة.\nمثال: `بدي اسالك كيف الجو اليوم`", parse_mode="Markdown")
             return
         
-        thinking_msg = bot.reply_to(message, "جاري التفكير والإجابة... 🔍")
+        thinking_msg = bot.reply_to(message, "جاري البحث والإجابة... 🔍")
         ans = fetch_ai_answer(question)
         try:
             bot.edit_message_text(ans, chat_id, thinking_msg.message_id)
