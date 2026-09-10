@@ -87,7 +87,6 @@ def init_db():
         )
     """)
 
-    # إضافات لتحديث المخطط للردود الوسائط إن لم تكن موجودة
     try:
         cursor.execute("ALTER TABLE custom_replies ADD COLUMN media_type TEXT DEFAULT 'text'")
     except:
@@ -153,22 +152,28 @@ def is_user_jailed(user_id):
     if row and row[0] > 0:
         amount, loan_time = row
         current_time = int(time.time())
-        if (current_time - loan_time) >= 7200: # ساعتان (7200 ثانية)
+        if (current_time - loan_time) >= 7200: # ساعتان
             return True, amount
     return False, 0
 
 def clean_urls(text):
     return re.sub(r'https?://\S+|www\.\S+|t\.me/\S+', '', text).strip()
 
+# ==================== محرك الذكاء الاصطناعي المطور ====================
 def fetch_ai_answer(question):
+    # 1. المحرك الرئيسي السريع والمستقر Pollinations AI
     try:
-        res = requests.get(f"https://api.popcat.xyz/chatbot?msg={requests.utils.quote(question)}&name=Bot", timeout=6).json()
-        ans = res.get("response", "")
-        if ans and "error" not in ans.lower():
-            return clean_urls(ans)
+        sys_prompt = "أنت مساعد ذكي ومرح، أجب باللغة العربية بأسلوب واضح وبدون وضع أي روابط خارجية."
+        url = f"https://text.pollinations.ai/{requests.utils.quote(question)}?system={requests.utils.quote(sys_prompt)}"
+        res = requests.get(url, timeout=10)
+        if res.status_code == 200:
+            ans = res.text.strip()
+            if ans and "timed out" not in ans.lower() and "error" not in ans.lower():
+                return clean_urls(ans)
     except:
         pass
-    
+
+    # 2. محرك احتياطي DuckDuckGo Instant Answer
     try:
         ddg_res = requests.get(f"https://api.duckduckgo.com/?q={requests.utils.quote(question)}&format=json&no_html=1", timeout=6).json()
         ans = ddg_res.get("AbstractText", "")
@@ -179,7 +184,78 @@ def fetch_ai_answer(question):
 
     return "أهلاً بك! أنا هنا للمساعدة، يمكنك إعادة طرح سؤالك بصيغة أخرى."
 
-# ==================== الترحيب والوجهة ====================
+# ==================== خدمة تحميل يوتيوب المحدثة ====================
+def download_and_send_audio(chat_id, query, message_id):
+    status_msg = bot.send_message(chat_id, f"🔍 جاري البحث وتحميل الأغنية: **{query}**...", parse_mode="Markdown")
+    if not os.path.exists('downloads'):
+        os.makedirs('downloads')
+
+    filename = f"downloads/{int(time.time())}_{random.randint(1000,9999)}.m4a"
+
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'default_search': 'ytsearch1:',
+        'outtmpl': filename,
+        'noplaylist': True,
+        'quiet': True,
+        'no_warnings': True,
+        'nocheckcertificate': True,
+        'geo_bypass': True,
+        'headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        },
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'ios', 'web']
+            }
+        }
+    }
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(query, download=True)
+            if info and 'entries' in info and len(info['entries']) > 0:
+                video = info['entries'][0]
+                title = video.get('title', query)
+                uploader = video.get('uploader', 'فرفوش')
+
+                if os.path.exists(filename):
+                    with open(filename, 'rb') as audio:
+                        bot.send_audio(chat_id, audio, title=title, performer=uploader, reply_to_message_id=message_id)
+                    bot.delete_message(chat_id, status_msg.message_id)
+                    try:
+                        os.remove(filename)
+                    except:
+                        pass
+                    return
+
+        bot.edit_message_text("❌ لم يتم العثور على نتائج للأغنية.", chat_id, status_msg.message_id)
+    except Exception as e:
+        print(f"YouTube Download Error: {e}")
+        bot.edit_message_text("❌ حدث خطأ أثناء التحميل، يرجى المحاولة بعد قليل.", chat_id, status_msg.message_id)
+        if os.path.exists(filename):
+            try:
+                os.remove(filename)
+            except:
+                pass
+
+# ==================== الترحب عند إضافة البوت لمجموعة ====================
+@bot.message_handler(content_types=['new_chat_members'])
+def on_bot_added_to_group(message):
+    bot_id = bot.get_me().id
+    for member in message.new_chat_members:
+        if member.id == bot_id:
+            welcome_text = "انا جيييييت\nفوتو سلمولي على مطوري @syabd0"
+            bot.send_message(message.chat.id, welcome_text)
+            
+            conn = sqlite3.connect("bot_data.db")
+            c = conn.cursor()
+            c.execute("INSERT OR IGNORE INTO groups VALUES (?, ?)", (message.chat.id, message.chat.title or "مجموعة بدون عنوان"))
+            conn.commit()
+            conn.close()
+            break
+
+# ==================== الترحب الخاص بـ /start ====================
 def send_welcome_message(message):
     user_id = message.from_user.id
     try:
@@ -188,14 +264,13 @@ def send_welcome_message(message):
         bot_username = "Bot"
 
     welcome_text = (
-        "👋 **أهلاً بك في بوت إدارة المجموعات والتسلية الشامل!**\n\n"
-        "✨ **المميزات المضافة:**\n"
-        "🛡️ **حماية المجموعة:** منع الروابط والمعرفات والتحويل.\n"
-        "🎮 **ألعاب متطورة:** XO مع الأسماء، رياضيات، خمن الرقم، وعجلة الحظ 🎡.\n"
-        "💸 **استثمار وقروض:** نظام قرض واستثمار حقيقي ومخاطرة.\n"
+        "👋 **أهلاً بك في بوت فرفوش الشامل للمجموعات والتسلية!**\n\n"
+        "✨ **المميزات المفعلة:**\n"
+        "🛡️ **حماية المجموعة:** منع الروابط والمعرفات والتوجيه.\n"
+        "🎮 **ألعاب متطورة:** XO مع الأسم، رياضيات، خمن الرقم، وعجلة الحظ 🎡.\n"
+        "💸 **اقتصاد كامل:** قروض، سجن، سرقة 5%، واستثمار مخاطرة.\n"
         "🤖 **ذكاء اصطناعي:** اكتب `بدي اسالك [سؤالك]` للإجابة مباشرة.\n"
-        "🎵 **تحميل موسيقى:** اكتب `سمعني [اسم الأغنية]` لتنزل فوراً MP3.\n"
-        "💬 **ردود متعددة:** إمكانية إضافة ردود صور وفيديو وردود متعددة بضغطة واحدة."
+        "🎵 **تحميل أغاني:** اكتب `سمعني [اسم الأغنية]` لتنزل فوراً صوتية."
     )
 
     markup = types.InlineKeyboardMarkup(row_width=1)
@@ -219,7 +294,6 @@ def main_router(message):
         send_welcome_message(message)
         return
 
-    # حفظ الكروبات المتفاعلة
     if chat_type in ['group', 'supergroup']:
         chat_id = message.chat.id
         conn = sqlite3.connect("bot_data.db")
@@ -248,7 +322,6 @@ def main_router(message):
                     pass
                 return
 
-    # التحقق من حالة السجن بسب الدين
     jailed, debt = is_user_jailed(user_id)
     if jailed and text not in ["دفع ديني", "دفع دينو"] and not (message.reply_to_message and "دفع دينو" in text):
         bot.reply_to(message, "انت مسجون ياحباب دفاع دينك قبل يافقير")
@@ -265,7 +338,7 @@ def process_bot_commands(message):
     user_id = message.from_user.id
     chat_id = message.chat.id
 
-    # 1. الردود المخصصة المتعددة والوسائط (صور / فيديو / نص)
+    # 1. الردود المخصصة المتعددة والوسائط
     conn = sqlite3.connect("bot_data.db")
     c = conn.cursor()
     c.execute("SELECT response, media_type, file_id FROM custom_replies WHERE keyword = ?", (text,))
@@ -366,7 +439,7 @@ def process_bot_commands(message):
         conn.close()
         return
 
-    # 6. السرقة وتطوير الجمل والنسبة (5%)
+    # 6. السرقة
     if text in ["سرقة", "سرقه"]:
         if not message.reply_to_message:
             bot.reply_to(message, "⚠️ يجب أن تقوم بالرد (Reply) على رسالة العضو الذي تريد سرقته!")
@@ -386,7 +459,7 @@ def process_bot_commands(message):
         c.execute("SELECT last_steal FROM steal_cooldowns WHERE user_id = ?", (user_id,))
         row = c.fetchone()
 
-        if row and (current_time - row[0]) < 600: # cooldown 10 دقائق
+        if row and (current_time - row[0]) < 600:
             bot.reply_to(message, "ياويلك من الله لسا هلق سرقت! انتظر شوية لتهدأ الأوضاع.")
             conn.close()
             return
@@ -397,7 +470,7 @@ def process_bot_commands(message):
             conn.close()
             return
 
-        stolen_amount = max(1, int(target_bal * 0.05)) # سرقة 5% من الرصيد
+        stolen_amount = max(1, int(target_bal * 0.05))
         update_balance(target_user.id, -stolen_amount)
         update_balance(user_id, stolen_amount)
 
@@ -426,7 +499,6 @@ def process_bot_commands(message):
                 bot.reply_to(message, f"❌ رصيدك لا يكفي! معك حالياً {bal} ليرة.")
                 return
 
-            # تحديد النجاح أو الفشل عشوائياً
             is_success = random.choice([True, False])
             if is_success:
                 gain_percent = random.randint(15, 70)
@@ -458,10 +530,10 @@ def process_bot_commands(message):
             update_balance(user_id, won)
             bot.reply_to(message, f"🎡 **درت عجلة الحظ!**\nتم خصم 50 ليرة... وربحت **{won}** ليرة وهمية! 🎉", parse_mode="Markdown")
         else:
-            bot.reply_to(message, "🎡 **درت عجلة الحظ!**\nتم خصم 50 ليرة... وللأسف خسرت الحظيرة 0 ليرة! حظاً أفر 💔", parse_mode="Markdown")
+            bot.reply_to(message, "🎡 **درت عجلة الحظ!**\nتم خصم 50 ليرة... وخسرت 0 ليرة! حظاً أفر 💔", parse_mode="Markdown")
         return
 
-    # 9. تشغيل الألعاب بالأوامر المباشرة
+    # 9. الألعاب المباشرة
     if text in ["اكسني", "لعبة اكس اوه"]:
         bot.send_message(chat_id, f"🎮 **لعبة XO جديدة!**\nالمنافس الأول: {message.from_user.first_name}\nاضغط للانضمام والمنافسة:", reply_markup=get_xo_keyboard(None, user_id, message.from_user.first_name))
         return
@@ -480,7 +552,7 @@ def process_bot_commands(message):
         bot.send_message(chat_id, "🎯 **تحدي خمن الرقم:**\nخمنت رقم من `1` إلى `20`!\nأول شخص يكتب الرقم الصحيح يربح 20 ليرة.", parse_mode="Markdown")
         return
 
-    # 10. باقي الأوامر والالعاب والتجارة
+    # 10. باقي القوائم والمتجر
     if text in ["الالعاب", "الألعاب", "العاب"]:
         send_games_menu(chat_id)
         return
@@ -555,41 +627,6 @@ def process_bot_commands(message):
         else:
             bot.send_message(chat_id, "لا توجد أسئلة مضافة بعد.")
         return
-
-# ==================== خدمة تحميل الأغاني من يوتيوب ====================
-def download_and_send_audio(chat_id, query, message_id):
-    status_msg = bot.send_message(chat_id, f"🔍 جاري البحث وتحميل الأغنية: **{query}**...", parse_mode="Markdown")
-    if not os.path.exists('downloads'):
-        os.makedirs('downloads')
-
-    filename = f"downloads/{int(time.time())}_{random.randint(100,999)}.mp3"
-    ydl_opts = {
-        'format': 'bestaudio/best',
-        'default_search': 'ytsearch1:',
-        'outtmpl': filename,
-        'noplaylist': True,
-        'quiet': True,
-        'no_warnings': True,
-    }
-
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(query, download=True)
-            if info and 'entries' in info and len(info['entries']) > 0:
-                video = info['entries'][0]
-                title = video.get('title', query)
-                uploader = video.get('uploader', 'Music Bot')
-
-                if os.path.exists(filename):
-                    with open(filename, 'rb') as audio:
-                        bot.send_audio(chat_id, audio, title=title, performer=uploader, reply_to_message_id=message_id)
-                    bot.delete_message(chat_id, status_msg.message_id)
-                    os.remove(filename)
-                    return
-
-            bot.edit_message_text("❌ لم يتم العثور على نتائج للأغنية.", chat_id, status_msg.message_id)
-    except Exception as e:
-        bot.edit_message_text("❌ حدث خطأ أثناء التحميل الفوري، حاول مرة أخرى.", chat_id, status_msg.message_id)
 
 # ==================== قائمة الألعاب و XO ====================
 def send_games_menu(chat_id):
@@ -713,7 +750,7 @@ def handle_xo_callbacks(call):
             next_sym = game['symbols'][game['turn']]
             bot.edit_message_text(f"🎮 المباراة مستمرة بين:\n❌ {game['p1_name']}\n⭕ {game['p2_name']}\n\nالدور الحالي: {next_name} ({next_sym})", chat_id, msg_id, reply_markup=get_xo_keyboard(game))
 
-# ==================== لوحة الإدارة المتطورة ====================
+# ==================== لوحة الإدارة ====================
 def show_admin_panel(chat_id):
     markup = types.InlineKeyboardMarkup(row_width=2)
     markup.add(
@@ -746,7 +783,6 @@ def handle_admin_actions(call):
         show_admin_panel(chat_id)
         return
 
-    # 1. مغادرة المجموعات
     if call.data == "admin_leave_grp":
         conn = sqlite3.connect("bot_data.db")
         c = conn.cursor()
@@ -778,7 +814,6 @@ def handle_admin_actions(call):
             bot.send_message(chat_id, f"❌ حدث خطأ أثناء المغادرة: {e}")
         return
 
-    # 2. إرسال رسالة خاصة لمجموعة
     if call.data == "admin_send_grp_msg":
         conn = sqlite3.connect("bot_data.db")
         c = conn.cursor()
@@ -830,13 +865,12 @@ def handle_admin_actions(call):
         else:
             bot.send_message(chat_id, "لا توجد ردود مضافة.")
 
-# ==================== معالجة إدخالات الأدمن والميديا ====================
+# ==================== إدخالات الأدمن ====================
 def handle_admin_inputs(message):
     user_id = message.from_user.id
     state = admin_states.get(user_id)
     chat_id = message.chat.id
 
-    # إرسال رسالة خاصة لجروب
     if state and state.startswith("wait_send_msg_"):
         target_chat_id = int(state.replace("wait_send_msg_", ""))
         try:
@@ -852,7 +886,6 @@ def handle_admin_inputs(message):
         del admin_states[user_id]
         return
 
-    # إضافة ردود (صورة / فيديو / نص / ردود متعددة بأسطر)
     if state == "wait_rep_key":
         admin_states[f'{user_id}_temp_key'] = message.text.strip()
         admin_states[user_id] = "wait_rep_val"
@@ -880,7 +913,6 @@ def handle_admin_inputs(message):
         del admin_states[user_id]
         bot.send_message(chat_id, f"✅ تم حفظ الردود للكلمة `{k}` بنجاح!", parse_mode="Markdown")
 
-    # إضافة أسئلة متعددة أسفل بعضها
     elif state == "wait_multi_q":
         lines = [line.strip() for line in message.text.split('\n') if line.strip()]
         conn = sqlite3.connect("bot_data.db")
