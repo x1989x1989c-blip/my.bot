@@ -200,8 +200,10 @@ def is_user_jailed(user_id):
     return False, 0
 
 def clean_urls_and_sources(text):
+    text = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', text)
     text = re.sub(r'https?://\S+|www\.\S+|t\.me/\S+', '', text)
-    text = re.sub(r'(📌\s*المصادر:?|🔗\s*المصدر:?|المصدر:|المصادر:)', '', text)
+    text = re.sub(r'(📌\s*المصادر:?|🔗\s*المصدر:?|المصدر:|المصادر:|Source:|Sources:)', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'\[\d+\]', '', text)
     return text.strip()
 
 def send_large_text(chat_id, header, items_list):
@@ -219,46 +221,78 @@ def send_large_text(chat_id, header, items_list):
     if current_msg:
         bot.send_message(chat_id, current_msg)
 
-# ==================== محرك البحث والذكاء الاصطناعي (المحدث والسريع مع خطة طوارئ) ====================
+# ==================== محرك البحث والذكاء الاصطناعي (المطور مع محركات وسيرفرات بديلة) ====================
 def fetch_ai_answer(question):
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
-        "Accept": "text/plain, application/json"
+        "Content-Type": "application/json"
     }
-    sys_prompt = "أنت مساعد ذكي واسمك فرفوش. أجب عن سؤال المستخدم باللغة العربية بشكل دقيق ومباشر جداً بدون روابط."
 
-    # 1. المحاولة الأولى: Pollinations عبر GET السريع (يتجاوز حظر Render)
+    sys_prompt = "أنت مساعد ذكي واسمك فرفوش. أجب عن سؤال المستخدم باللغة العربية بشكل دقيق ومباشر ومنطقي جداً بناءً على ما طلبه حصراً. يمنع منعاً باتاً ذكر أي روابط أو خروج عن موضوع السؤال أو ذكر أي مصادر."
+
+    models = ["openai", "deepseek", "mistral", "qwen"]
+
+    # 1. المحاولة الأولى: POST Request مع نماذج متعددة
+    for model in models:
+        try:
+            payload = {
+                "messages": [
+                    {"role": "system", "content": sys_prompt},
+                    {"role": "user", "content": question}
+                ],
+                "model": model,
+                "seed": random.randint(1, 99999)
+            }
+            res = requests.post("https://text.pollinations.ai/", json=payload, headers=headers, timeout=6)
+            if res.status_code == 200 and res.text:
+                ans = clean_urls_and_sources(res.text)
+                if ans and len(ans) > 5 and not any(bad in ans.lower() for bad in ["timed out", "error", "504", "403", "html", "cloudflare", "bad gateway"]):
+                    return ans
+        except Exception:
+            continue
+
+    # 2. المحاولة الثانية: GET Request لسيرفر الذكاء الاصطناعي
+    for model in models:
+        try:
+            q_enc = requests.utils.quote(question)
+            sys_enc = requests.utils.quote(sys_prompt)
+            url = f"https://text.pollinations.ai/{q_enc}?model={model}&system={sys_enc}"
+            res = requests.get(url, headers=headers, timeout=6)
+            if res.status_code == 200 and res.text:
+                ans = clean_urls_and_sources(res.text)
+                if ans and len(ans) > 5 and not any(bad in ans.lower() for bad in ["timed out", "error", "504", "403", "html", "cloudflare", "bad gateway"]):
+                    return ans
+        except Exception:
+            continue
+
+    # 3. المحاولة الثالثة: محرك البحث المباشر (DuckDuckGo Instant Answer) عند ضغط الخوادم
     try:
-        url = f"https://text.pollinations.ai/{requests.utils.quote(question)}?system={requests.utils.quote(sys_prompt)}&model=openai"
-        res = requests.get(url, headers=headers, timeout=6)
-        if res.status_code == 200 and res.text:
-            ans = clean_urls_and_sources(res.text)
-            if len(ans) > 3 and not any(bad in ans.lower() for bad in ["cloudflare", "504", "error", "html", "bad gateway"]):
-                return ans
+        ddg_url = f"https://api.duckduckgo.com/?q={requests.utils.quote(question)}&format=json&no_html=1&skip_disambig=1"
+        res = requests.get(ddg_url, headers=headers, timeout=5)
+        if res.status_code == 200:
+            data = res.json()
+            abstract = data.get("AbstractText", "")
+            if abstract:
+                return clean_urls_and_sources(abstract)
     except Exception:
         pass
 
-    # 2. المحاولة الثانية: سيرفر Blackbox AI الاحتياطي
+    # 4. المحاولة الرابعة: سيرفر احتياطي إضافي
     try:
         bb_payload = {
-            "messages": [{"role": "user", "content": f"{sys_prompt}\nالسؤال: {question}"}],
-            "isQuery": True
+            "messages": [{"id": "1", "content": f"{sys_prompt}\nالسؤال: {question}", "role": "user"}],
+            "id": "1",
+            "previewToken": None,
+            "userId": None,
+            "codeModelMode": False,
+            "agentMode": {},
+            "trendingAgentMode": {},
+            "isMQA": False
         }
-        res = requests.post("https://api.blackbox.ai/api/chat", json=bb_payload, headers=headers, timeout=7)
+        res = requests.post("https://www.blackbox.ai/api/chat", json=bb_payload, headers=headers, timeout=6)
         if res.status_code == 200 and res.text:
             ans = clean_urls_and_sources(res.text)
-            if len(ans) > 3 and "cloudflare" not in ans.lower():
-                return ans
-    except Exception:
-        pass
-
-    # 3. المحاولة الثالثة: نموذج طوارئ خفيف جداً (Qwen)
-    try:
-        url = f"https://text.pollinations.ai/{requests.utils.quote(question)}?model=qwen"
-        res = requests.get(url, headers=headers, timeout=6)
-        if res.status_code == 200 and res.text:
-            ans = clean_urls_and_sources(res.text)
-            if len(ans) > 3 and "cloudflare" not in ans.lower():
+            if ans and len(ans) > 5:
                 return ans
     except Exception:
         pass
