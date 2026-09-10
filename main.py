@@ -219,23 +219,18 @@ def send_large_text(chat_id, header, items_list):
     if current_msg:
         bot.send_message(chat_id, current_msg)
 
-# ==================== محرك البحث والذكاء الاصطناعي (المعدل للإجابة الدقيقة) ====================
+# ==================== محرك البحث والذكاء الاصطناعي (المعدل والدقيق جداً) ====================
 def fetch_ai_answer(question):
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
-        "Accept-Language": "ar,en-US;q=0.9,en;q=0.8",
         "Content-Type": "application/json"
     }
 
-    sys_prompt = (
-        "أنت مساعد ذكي ومفيد واسمك فرفوش. أجب عن سؤال المستخدم باللغة العربية بشكل دقيق جداً، "
-        "ومباشر، ومنطقي، ومطابق تماماً للمطلوب. يمنع منعاً باتاً الإجابة عن شيء آخر غير السؤال. "
-        "يمنع ذكر أي روابط أو مواقع أو الإشارة للمصادر. قم بإعطاء خطوات أو إجابة واضحة ومباشرة."
-    )
+    sys_prompt = "أنت مساعد ذكي واسمك فرفوش. أجب عن سؤال المستخدم باللغة العربية بشكل دقيق ومباشر ومنطقي جداً بناءً على ما طلبه حصراً. يمنع منعاً باتاً ذكر أي روابط أو خروج عن موضوع السؤال."
 
-    models = ["openai", "qwen", "mistral", "deepseek", "llama"]
+    models = ["openai", "deepseek", "mistral", "qwen"]
 
-    # 1. المحاولة عبر POST بجميع نماذج الذكاء الاصطناعي التوليدية
+    # 1. المحاولة الأولى: POST request مع نماذج متطورة متلاحقة
     for model in models:
         try:
             payload = {
@@ -244,23 +239,9 @@ def fetch_ai_answer(question):
                     {"role": "user", "content": question}
                 ],
                 "model": model,
-                "seed": random.randint(1, 100000)
+                "seed": random.randint(1, 99999)
             }
-            res = requests.post("https://text.pollinations.ai/", json=payload, headers=headers, timeout=10)
-            if res.status_code == 200 and res.text:
-                ans = clean_urls_and_sources(res.text)
-                if ans and len(ans) > 5 and not any(bad in ans.lower() for bad in ["timed out", "error", "504", "403", "html", "cloudflare", "bad gateway", "service unavailable"]):
-                    return ans
-        except Exception:
-            continue
-
-    # 2. المحاولة عبر GET بالنظام المعزز
-    for model in ["openai", "qwen", "mistral"]:
-        try:
-            encoded_q = requests.utils.quote(question)
-            encoded_sys = requests.utils.quote(sys_prompt)
-            url = f"https://text.pollinations.ai/{encoded_q}?model={model}&system={encoded_sys}&cache=false"
-            res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=8)
+            res = requests.post("https://text.pollinations.ai/", json=payload, headers=headers, timeout=9)
             if res.status_code == 200 and res.text:
                 ans = clean_urls_and_sources(res.text)
                 if ans and len(ans) > 5 and not any(bad in ans.lower() for bad in ["timed out", "error", "504", "403", "html", "cloudflare", "bad gateway"]):
@@ -268,7 +249,19 @@ def fetch_ai_answer(question):
         except Exception:
             continue
 
-    return "عذراً، تعذر الوصول إلى إجابة دقيقة حالياً. يرجى إعادة المحاولة بعد قليل."
+    # 2. المحاولة الثانية: GET request كبديل عند ضغط السيرفر
+    for model in models:
+        try:
+            url = f"https://text.pollinations.ai/{requests.utils.quote(question)}?model={model}&system={requests.utils.quote(sys_prompt)}"
+            res = requests.get(url, headers=headers, timeout=8)
+            if res.status_code == 200 and res.text:
+                ans = clean_urls_and_sources(res.text)
+                if ans and len(ans) > 5 and not any(bad in ans.lower() for bad in ["timed out", "error", "504", "403", "html", "cloudflare", "bad gateway"]):
+                    return ans
+        except Exception:
+            continue
+
+    return "عذراً يا غالي، تعذر الوصول لإجابة دقيقة حالياً. أعد إرسال سؤالك مرة ثانية."
 
 # ==================== خدمة تحميل الأغاني ====================
 def download_and_send_audio(chat_id, query, message_id):
@@ -567,7 +560,7 @@ def process_bot_commands(message):
             bot.reply_to(message, "تفضل اكتب سؤالك بعد الأمر مباشرة.\nمثال: `بدي اسالك كيف الجو اليوم`", parse_mode="Markdown")
             return
         
-        thinking_msg = bot.reply_to(message, "جاري البحث والإجابة... 🔍")
+        thinking_msg = bot.reply_to(message, "جاري التفكير والبحث... 🔍")
         ans = fetch_ai_answer(question)
         try:
             bot.edit_message_text(ans, chat_id, thinking_msg.message_id)
