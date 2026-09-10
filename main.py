@@ -217,51 +217,58 @@ def send_large_text(chat_id, header, items_list):
     if current_msg:
         bot.send_message(chat_id, current_msg, parse_mode="Markdown")
 
-# ==================== محرك الذكاء الاصطناعي الذكي ====================
+# ==================== محرك الذكاء الاصطناعي المعدل ====================
 def fetch_ai_answer(question):
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    }
+    sys_prompt = "أنت مساعد ذكي ومرح واسمك فرفوش. أجب على كافة الأسئلة باللغة العربية بشكل منطقي، واقعي، وواضح وبدون وضع روابط."
+
     # المحاولة الأولى: Pollinations POST API
     try:
         url = "https://text.pollinations.ai/"
         payload = {
             "messages": [
-                {"role": "system", "content": "أنت مساعد ذكي ومرح واسمك فرفوش. أجب على كافة الأسئلة باللغة العربية بشكل منطقي، واقعي، وواضح بدون وضع روابط."},
+                {"role": "system", "content": sys_prompt},
                 {"role": "user", "content": question}
             ],
             "model": "openai"
         }
-        res = requests.post(url, json=payload, timeout=12)
-        if res.status_code == 200 and res.text.strip():
+        res = requests.post(url, json=payload, headers=headers, timeout=8)
+        if res.status_code == 200 and res.text:
             ans = clean_urls(res.text.strip())
-            if ans and "timed out" not in ans.lower() and "error" not in ans.lower():
+            if ans and not any(bad in ans.lower() for bad in ["timed out", "error", "504", "403", "html"]):
                 return ans
     except Exception:
         pass
 
-    # المحاولة الثانية: Pollinations GET Direct
-    try:
-        sys_prompt = "أنت ذكاء اصطناعي تجيب عن كل الأسئلة باللغة العربية بأسلوب منطقي وواقعي وبدون روابط."
-        url = f"https://text.pollinations.ai/{requests.utils.quote(question)}?system={requests.utils.quote(sys_prompt)}"
-        res = requests.get(url, timeout=10)
-        if res.status_code == 200 and res.text.strip():
-            ans = clean_urls(res.text.strip())
-            if ans and "timed out" not in ans.lower():
-                return ans
-    except Exception:
-        pass
+    # المحاولة الثانية: Pollinations GET بأساليب مختلفة
+    for model_name in ["openai", "mistral", "qwen-coder"]:
+        try:
+            url = f"https://text.pollinations.ai/{requests.utils.quote(question)}?system={requests.utils.quote(sys_prompt)}&model={model_name}"
+            res = requests.get(url, headers=headers, timeout=7)
+            if res.status_code == 200 and res.text:
+                ans = clean_urls(res.text.strip())
+                if ans and not any(bad in ans.lower() for bad in ["timed out", "error", "504", "403", "html"]):
+                    return ans
+        except Exception:
+            pass
 
     # المحاولة الثالثة: Popcat AI Fallback
     try:
-        res = requests.get(f"https://api.popcat.xyz/chatbot?msg={requests.utils.quote(question)}", timeout=6)
+        res = requests.get(f"https://api.popcat.xyz/chatbot?msg={requests.utils.quote(question)}", headers=headers, timeout=5)
         if res.status_code == 200:
             data = res.json()
             if "response" in data and data["response"]:
-                return clean_urls(data["response"])
+                ans = clean_urls(data["response"])
+                if ans and not any(bad in ans.lower() for bad in ["timed out", "error"]):
+                    return ans
     except Exception:
         pass
 
-    return "أنا بخير والحمد لله! جاهز ومستعد للإجابة على جميع أسئلتك بكل سرور."
+    return "أنا بخير والحمد لله! تعذر الاتصال بالمحرك المؤقت، يرجى إعادة المحاولة بعد لحظات."
 
-# ==================== خدمة تحميل الأغاني ====================
+# ==================== خدمة تحميل الأغاني المعدلة ====================
 def download_and_send_audio(chat_id, query, message_id):
     status_msg = bot.send_message(chat_id, f"🔍 جاري البحث وتحميل الأغنية: **{query}**...", parse_mode="Markdown")
     if not os.path.exists('downloads'):
@@ -281,8 +288,13 @@ def download_and_send_audio(chat_id, query, message_id):
         'geo_bypass': True,
         'cachedir': False,
         'headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-            'Accept-Language': 'ar,en-US;q=0.7,en;q=0.3',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Accept-Language': 'ar,en-US;q=0.9,en;q=0.8',
+        },
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'ios', 'mweb']
+            }
         }
     }
 
@@ -740,7 +752,7 @@ def process_bot_commands(message):
         bot.send_message(chat_id, "🎯 **تحدي خمن الرقم:**\nخمنت رقم من `1` إلى `20`!\nأول شخص يكتب الرقم الصحيح يربح 20 ليرة.", parse_mode="Markdown")
         return
 
-    # 13. القوائم والمتجر والممتلكات
+    # 13. القوائم ومتجر الممتلكات
     if text in ["الالعاب", "الألعاب", "العاب"]:
         send_games_menu(chat_id)
         return
