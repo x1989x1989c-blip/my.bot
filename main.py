@@ -4,6 +4,7 @@ import time
 import random
 import sqlite3
 import requests
+import html
 import telebot
 from telebot import types
 import yt_dlp
@@ -221,18 +222,18 @@ def send_large_text(chat_id, header, items_list):
     if current_msg:
         bot.send_message(chat_id, current_msg)
 
-# ==================== محرك البحث والذكاء الاصطناعي (المطور مع محركات وسيرفرات بديلة) ====================
+# ==================== محرك البحث والذكاء الاصطناعي المطور ====================
 def fetch_ai_answer(question):
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
-        "Content-Type": "application/json"
+        "Accept-Language": "ar,en;q=0.9"
     }
 
     sys_prompt = "أنت مساعد ذكي واسمك فرفوش. أجب عن سؤال المستخدم باللغة العربية بشكل دقيق ومباشر ومنطقي جداً بناءً على ما طلبه حصراً. يمنع منعاً باتاً ذكر أي روابط أو خروج عن موضوع السؤال أو ذكر أي مصادر."
 
-    models = ["openai", "deepseek", "mistral", "qwen"]
+    models = ["openai", "deepseek", "mistral", "qwen", "llama"]
 
-    # 1. المحاولة الأولى: POST Request مع نماذج متعددة
+    # 1. المحاولة الأولى: POST Request مع نماذج ذكاء اصطناعي متعددة (مهلة سريعة 3 ثوانٍ)
     for model in models:
         try:
             payload = {
@@ -243,7 +244,7 @@ def fetch_ai_answer(question):
                 "model": model,
                 "seed": random.randint(1, 99999)
             }
-            res = requests.post("https://text.pollinations.ai/", json=payload, headers=headers, timeout=6)
+            res = requests.post("https://text.pollinations.ai/", json=payload, headers={**headers, "Content-Type": "application/json"}, timeout=3)
             if res.status_code == 200 and res.text:
                 ans = clean_urls_and_sources(res.text)
                 if ans and len(ans) > 5 and not any(bad in ans.lower() for bad in ["timed out", "error", "504", "403", "html", "cloudflare", "bad gateway"]):
@@ -252,12 +253,12 @@ def fetch_ai_answer(question):
             continue
 
     # 2. المحاولة الثانية: GET Request لسيرفر الذكاء الاصطناعي
-    for model in models:
+    for model in models[:3]:
         try:
             q_enc = requests.utils.quote(question)
             sys_enc = requests.utils.quote(sys_prompt)
             url = f"https://text.pollinations.ai/{q_enc}?model={model}&system={sys_enc}"
-            res = requests.get(url, headers=headers, timeout=6)
+            res = requests.get(url, headers=headers, timeout=3)
             if res.status_code == 200 and res.text:
                 ans = clean_urls_and_sources(res.text)
                 if ans and len(ans) > 5 and not any(bad in ans.lower() for bad in ["timed out", "error", "504", "403", "html", "cloudflare", "bad gateway"]):
@@ -265,10 +266,70 @@ def fetch_ai_answer(question):
         except Exception:
             continue
 
-    # 3. المحاولة الثالثة: محرك البحث المباشر (DuckDuckGo Instant Answer) عند ضغط الخوادم
+    # 3. المحاولة الثالثة: محرك بحث ويكيبيديا العربية (Wikipedia Search API) للإجابات المباشرة والدقيقة
+    try:
+        wiki_url = "https://ar.wikipedia.org/w/api.php"
+        search_params = {
+            "action": "query",
+            "list": "search",
+            "srsearch": question,
+            "format": "json"
+        }
+        res = requests.get(wiki_url, params=search_params, headers=headers, timeout=4)
+        if res.status_code == 200:
+            data = res.json()
+            search_results = data.get("query", {}).get("search", [])
+            if search_results:
+                pageid = search_results[0]["pageid"]
+                extract_params = {
+                    "action": "query",
+                    "prop": "extracts",
+                    "exintro": "1",
+                    "explaintext": "1",
+                    "pageids": str(pageid),
+                    "format": "json"
+                }
+                res_ext = requests.get(wiki_url, params=extract_params, headers=headers, timeout=4)
+                if res_ext.status_code == 200:
+                    pages = res_ext.json().get("query", {}).get("pages", {})
+                    extract_text = pages.get(str(pageid), {}).get("extract", "")
+                    if extract_text:
+                        clean_ext = clean_urls_and_sources(extract_text)
+                        paragraphs = [p.strip() for p in clean_ext.split('\n') if p.strip()]
+                        if paragraphs:
+                            final_text = paragraphs[0]
+                            if len(final_text) < 120 and len(paragraphs) > 1:
+                                final_text += " " + paragraphs[1]
+                            return final_text[:500]
+    except Exception:
+        pass
+
+    # 4. المحاولة الرابعة: محرك بحث DuckDuckGo HTML Parsing المباشر
+    try:
+        ddg_html_url = f"https://html.duckduckgo.com/html/?q={requests.utils.quote(question)}"
+        res = requests.get(ddg_html_url, headers=headers, timeout=4)
+        if res.status_code == 200:
+            snippets = re.findall(r'<a[^>]+class="[^"]*result__snippet[^"]*"[^>]*>(.*?)</a>', res.text, re.DOTALL)
+            if not snippets:
+                snippets = re.findall(r'<td[^>]+class="[^"]*result-snippet[^"]*"[^>]*>(.*?)</td>', res.text, re.DOTALL)
+            
+            clean_snippets = []
+            for snip in snippets[:3]:
+                text_snip = re.sub(r'<[^>]+>', '', snip)
+                text_snip = html.unescape(text_snip).strip()
+                if text_snip and len(text_snip) > 15:
+                    clean_snippets.append(text_snip)
+            
+            if clean_snippets:
+                combined = " ".join(clean_snippets)
+                return clean_urls_and_sources(combined[:400])
+    except Exception:
+        pass
+
+    # 5. المحاولة الخامسة: محرك البحث المباشر (DuckDuckGo Instant Answer)
     try:
         ddg_url = f"https://api.duckduckgo.com/?q={requests.utils.quote(question)}&format=json&no_html=1&skip_disambig=1"
-        res = requests.get(ddg_url, headers=headers, timeout=5)
+        res = requests.get(ddg_url, headers=headers, timeout=4)
         if res.status_code == 200:
             data = res.json()
             abstract = data.get("AbstractText", "")
@@ -277,7 +338,7 @@ def fetch_ai_answer(question):
     except Exception:
         pass
 
-    # 4. المحاولة الرابعة: سيرفر احتياطي إضافي
+    # 6. المحاولة السادسة: سيرفر Blackbox AI الاحتياطي
     try:
         bb_payload = {
             "messages": [{"id": "1", "content": f"{sys_prompt}\nالسؤال: {question}", "role": "user"}],
@@ -289,10 +350,10 @@ def fetch_ai_answer(question):
             "trendingAgentMode": {},
             "isMQA": False
         }
-        res = requests.post("https://www.blackbox.ai/api/chat", json=bb_payload, headers=headers, timeout=6)
+        res = requests.post("https://www.blackbox.ai/api/chat", json=bb_payload, headers={**headers, "Content-Type": "application/json"}, timeout=4)
         if res.status_code == 200 and res.text:
             ans = clean_urls_and_sources(res.text)
-            if ans and len(ans) > 5:
+            if ans and len(ans) > 5 and not "error" in ans.lower():
                 return ans
     except Exception:
         pass
