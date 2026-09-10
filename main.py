@@ -219,47 +219,49 @@ def send_large_text(chat_id, header, items_list):
     if current_msg:
         bot.send_message(chat_id, current_msg)
 
-# ==================== محرك البحث والذكاء الاصطناعي (المعدل والدقيق جداً) ====================
+# ==================== محرك البحث والذكاء الاصطناعي (المحدث والسريع مع خطة طوارئ) ====================
 def fetch_ai_answer(question):
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
-        "Content-Type": "application/json"
+        "Accept": "text/plain, application/json"
     }
+    sys_prompt = "أنت مساعد ذكي واسمك فرفوش. أجب عن سؤال المستخدم باللغة العربية بشكل دقيق ومباشر جداً بدون روابط."
 
-    sys_prompt = "أنت مساعد ذكي واسمك فرفوش. أجب عن سؤال المستخدم باللغة العربية بشكل دقيق ومباشر ومنطقي جداً بناءً على ما طلبه حصراً. يمنع منعاً باتاً ذكر أي روابط أو خروج عن موضوع السؤال."
+    # 1. المحاولة الأولى: Pollinations عبر GET السريع (يتجاوز حظر Render)
+    try:
+        url = f"https://text.pollinations.ai/{requests.utils.quote(question)}?system={requests.utils.quote(sys_prompt)}&model=openai"
+        res = requests.get(url, headers=headers, timeout=6)
+        if res.status_code == 200 and res.text:
+            ans = clean_urls_and_sources(res.text)
+            if len(ans) > 3 and not any(bad in ans.lower() for bad in ["cloudflare", "504", "error", "html", "bad gateway"]):
+                return ans
+    except Exception:
+        pass
 
-    models = ["openai", "deepseek", "mistral", "qwen"]
+    # 2. المحاولة الثانية: سيرفر Blackbox AI الاحتياطي
+    try:
+        bb_payload = {
+            "messages": [{"role": "user", "content": f"{sys_prompt}\nالسؤال: {question}"}],
+            "isQuery": True
+        }
+        res = requests.post("https://api.blackbox.ai/api/chat", json=bb_payload, headers=headers, timeout=7)
+        if res.status_code == 200 and res.text:
+            ans = clean_urls_and_sources(res.text)
+            if len(ans) > 3 and "cloudflare" not in ans.lower():
+                return ans
+    except Exception:
+        pass
 
-    # 1. المحاولة الأولى: POST request مع نماذج متطورة متلاحقة
-    for model in models:
-        try:
-            payload = {
-                "messages": [
-                    {"role": "system", "content": sys_prompt},
-                    {"role": "user", "content": question}
-                ],
-                "model": model,
-                "seed": random.randint(1, 99999)
-            }
-            res = requests.post("https://text.pollinations.ai/", json=payload, headers=headers, timeout=9)
-            if res.status_code == 200 and res.text:
-                ans = clean_urls_and_sources(res.text)
-                if ans and len(ans) > 5 and not any(bad in ans.lower() for bad in ["timed out", "error", "504", "403", "html", "cloudflare", "bad gateway"]):
-                    return ans
-        except Exception:
-            continue
-
-    # 2. المحاولة الثانية: GET request كبديل عند ضغط السيرفر
-    for model in models:
-        try:
-            url = f"https://text.pollinations.ai/{requests.utils.quote(question)}?model={model}&system={requests.utils.quote(sys_prompt)}"
-            res = requests.get(url, headers=headers, timeout=8)
-            if res.status_code == 200 and res.text:
-                ans = clean_urls_and_sources(res.text)
-                if ans and len(ans) > 5 and not any(bad in ans.lower() for bad in ["timed out", "error", "504", "403", "html", "cloudflare", "bad gateway"]):
-                    return ans
-        except Exception:
-            continue
+    # 3. المحاولة الثالثة: نموذج طوارئ خفيف جداً (Qwen)
+    try:
+        url = f"https://text.pollinations.ai/{requests.utils.quote(question)}?model=qwen"
+        res = requests.get(url, headers=headers, timeout=6)
+        if res.status_code == 200 and res.text:
+            ans = clean_urls_and_sources(res.text)
+            if len(ans) > 3 and "cloudflare" not in ans.lower():
+                return ans
+    except Exception:
+        pass
 
     return "عذراً يا غالي، تعذر الوصول لإجابة دقيقة حالياً. أعد إرسال سؤالك مرة ثانية."
 
