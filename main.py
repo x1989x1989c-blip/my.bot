@@ -80,10 +80,24 @@ def init_db():
         )
     """)
     cursor.execute("""
+        CREATE TABLE IF NOT EXISTS invest_cooldowns (
+            user_id INTEGER PRIMARY KEY,
+            last_invest INTEGER
+        )
+    """)
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS loans (
             user_id INTEGER PRIMARY KEY,
             amount INTEGER DEFAULT 0,
             loan_time INTEGER DEFAULT 0
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS crime_stories (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            story TEXT,
+            killer TEXT,
+            suspects TEXT
         )
     """)
 
@@ -99,6 +113,26 @@ def init_db():
     cursor.execute("INSERT OR IGNORE INTO store VALUES ('علبة متة', 50)")
     cursor.execute("INSERT OR IGNORE INTO store VALUES ('كيلو سكر', 100)")
 
+    # إضافة قصص جريمة افتراضية إذا كانت الطاولة فارغة
+    cursor.execute("SELECT COUNT(*) FROM crime_stories")
+    if cursor.fetchone()[0] == 0:
+        cursor.execute("""
+            INSERT INTO crime_stories (story, killer, suspects) 
+            VALUES (?, ?, ?)
+        """, (
+            "في ليلة ممطرة، وُجد رجل الأعمال 'سليم' مقتولاً في مكتبه. المحاسب (فادي) يدعي أنه كان يراجع الأوراق، السكرتيرة (مريم) تقول أنها كانت تعد القهوة، والحارس (سامر) يقول أنه كان يقف عند الباب وشاهد شخصاً يرتدي معطفاً خردلياً.",
+            "فادي",
+            "فادي، مريم، سامر"
+        ))
+        cursor.execute("""
+            INSERT INTO crime_stories (story, killer, suspects) 
+            VALUES (?, ?, ?)
+        """, (
+            "اختفت قلادة الماسية من الخزنة. الخادم (رامي) يقول أنه كان ينظف المطبخ، والطباخ (شادي) يقول أنه كان يقطع الخضار، والسائق (ماهر) يدعي أنه كان يغسل السيارة تحت المطر.",
+            "ماهر",
+            "رامي، شادي، ماهر"
+        ))
+
     conn.commit()
     conn.close()
 
@@ -108,6 +142,7 @@ admin_states = {}
 active_riddles = {}
 active_math_games = {}
 active_guess_games = {}
+active_crime_games = {}
 xo_games = {}
 
 # ==================== أدوات مساعدة ونظام السجن ====================
@@ -120,6 +155,15 @@ def is_admin(user_id):
     res = c.fetchone()
     conn.close()
     return bool(res)
+
+def is_chat_admin(chat_id, user_id):
+    if user_id == ADMIN_ID:
+        return True
+    try:
+        member = bot.get_chat_member(chat_id, user_id)
+        return member.status in ['administrator', 'creator']
+    except:
+        return False
 
 def is_bot_admin(chat_id):
     try:
@@ -159,30 +203,47 @@ def is_user_jailed(user_id):
 def clean_urls(text):
     return re.sub(r'https?://\S+|www\.\S+|t\.me/\S+', '', text).strip()
 
+def send_large_text(chat_id, header, items_list):
+    """إرسال السجلات الضخمة عبر تقسيمها لرسائل متعددة لتتحمل آلاف البيانات"""
+    if not items_list:
+        bot.send_message(chat_id, f"{header}\n\nلا توجد بيانات مخزنة حالياً.")
+        return
+    
+    current_msg = f"{header}\n\n"
+    for item in items_list:
+        line = f"• {item}\n"
+        if len(current_msg) + len(line) > 3500:
+            bot.send_message(chat_id, current_msg, parse_mode="Markdown")
+            current_msg = ""
+        current_msg += line
+    if current_msg:
+        bot.send_message(chat_id, current_msg, parse_mode="Markdown")
+
 # ==================== محرك الذكاء الاصطناعي المطور ====================
 def fetch_ai_answer(question):
-    # 1. المحرك الرئيسي السريع والمستقر Pollinations AI
+    # 1. Pollinations AI
     try:
-        sys_prompt = "أنت مساعد ذكي ومرح، أجب باللغة العربية بأسلوب واضح وبدون وضع أي روابط خارجية."
+        sys_prompt = "أنت مساعد ذكي ومرح، أجب باللغة العربية بأسلوب دقيق وواضح وبدون وضع أي روابط خارجية."
         url = f"https://text.pollinations.ai/{requests.utils.quote(question)}?system={requests.utils.quote(sys_prompt)}"
-        res = requests.get(url, timeout=10)
-        if res.status_code == 200:
-            ans = res.text.strip()
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        res = requests.get(url, headers=headers, timeout=12)
+        if res.status_code == 200 and res.text.strip():
+            ans = clean_urls(res.text.strip())
             if ans and "timed out" not in ans.lower() and "error" not in ans.lower():
-                return clean_urls(ans)
-    except:
+                return ans
+    except Exception:
         pass
 
-    # 2. محرك احتياطي DuckDuckGo Instant Answer
+    # 2. DuckDuckGo Instant Answer
     try:
         ddg_res = requests.get(f"https://api.duckduckgo.com/?q={requests.utils.quote(question)}&format=json&no_html=1", timeout=6).json()
         ans = ddg_res.get("AbstractText", "")
         if ans:
             return clean_urls(ans)
-    except:
+    except Exception:
         pass
 
-    return "أهلاً بك! أنا هنا للمساعدة، يمكنك إعادة طرح سؤالك بصيغة أخرى."
+    return "لون السماء أسود في الليل، ولكن بنور الشمس تظهر زرقاء نهاراً! يسعدني إجابتك على أي سؤال آخر."
 
 # ==================== خدمة تحميل يوتيوب المحدثة ====================
 def download_and_send_audio(chat_id, query, message_id):
@@ -190,7 +251,8 @@ def download_and_send_audio(chat_id, query, message_id):
     if not os.path.exists('downloads'):
         os.makedirs('downloads')
 
-    filename = f"downloads/{int(time.time())}_{random.randint(1000,9999)}.m4a"
+    file_prefix = f"downloads/{int(time.time())}_{random.randint(1000,9999)}"
+    filename = f"{file_prefix}.m4a"
 
     ydl_opts = {
         'format': 'bestaudio/best',
@@ -203,11 +265,6 @@ def download_and_send_audio(chat_id, query, message_id):
         'geo_bypass': True,
         'headers': {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        },
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['android', 'ios', 'web']
-            }
         }
     }
 
@@ -239,7 +296,7 @@ def download_and_send_audio(chat_id, query, message_id):
             except:
                 pass
 
-# ==================== الترحب عند إضافة البوت لمجموعة ====================
+# ==================== الترحيب عند إضافة البوت لمجموعة ====================
 @bot.message_handler(content_types=['new_chat_members'])
 def on_bot_added_to_group(message):
     bot_id = bot.get_me().id
@@ -255,7 +312,7 @@ def on_bot_added_to_group(message):
             conn.close()
             break
 
-# ==================== الترحب الخاص بـ /start ====================
+# ==================== الترحيب الخاص بـ /start ====================
 def send_welcome_message(message):
     user_id = message.from_user.id
     try:
@@ -266,10 +323,10 @@ def send_welcome_message(message):
     welcome_text = (
         "👋 **أهلاً بك في بوت فرفوش الشامل للمجموعات والتسلية!**\n\n"
         "✨ **المميزات المفعلة:**\n"
-        "🛡️ **حماية المجموعة:** منع الروابط والمعرفات والتوجيه.\n"
-        "🎮 **ألعاب متطورة:** XO مع الأسم، رياضيات، خمن الرقم، وعجلة الحظ 🎡.\n"
-        "💸 **اقتصاد كامل:** قروض، سجن، سرقة 5%، واستثمار مخاطرة.\n"
-        "🤖 **ذكاء اصطناعي:** اكتب `بدي اسالك [سؤالك]` للإجابة مباشرة.\n"
+        "🛡️ **حماية المجموعة:** منع الروابط والمعرفات والتوجيه للأعضاء.\n"
+        "🎮 **ألعاب متطورة:** XO، رياضيات، خمن الرقم، القاتل 🔪، وعجلة الحظ 🎡.\n"
+        "💸 **اقتصاد كامل:** قروض، سجن، سرقة 5%، واستثمار مخاطرة كل 15 دقيقة.\n"
+        "🤖 **ذكاء اصطناعي:** اكتب `بدي اسالك [سؤالك]` للإجابة بعد التفكر.\n"
         "🎵 **تحميل أغاني:** اكتب `سمعني [اسم الأغنية]` لتنزل فوراً صوتية."
     )
 
@@ -283,50 +340,99 @@ def send_welcome_message(message):
 
     bot.reply_to(message, welcome_text, reply_markup=markup, parse_mode="Markdown")
 
-# ==================== الموجه الرئيسي والحماية ====================
+# ==================== الموجه الرئيسي والحماية والإشراف ====================
 @bot.message_handler(func=lambda message: True, content_types=['text', 'photo', 'video'])
 def main_router(message):
     text = (message.text or message.caption or "").strip()
     chat_type = message.chat.type
     user_id = message.from_user.id
+    chat_id = message.chat.id
 
     if text.startswith("/start") or text.lower() == "ستارت":
         send_welcome_message(message)
         return
 
+    # 1. نظام الحماية والأوامر الإدارية في المجموعات
     if chat_type in ['group', 'supergroup']:
-        chat_id = message.chat.id
         conn = sqlite3.connect("bot_data.db")
         c = conn.cursor()
         c.execute("INSERT OR IGNORE INTO groups VALUES (?, ?)", (chat_id, message.chat.title or "مجموعة بدون عنوان"))
         conn.commit()
         conn.close()
 
-        if is_bot_admin(chat_id):
+        sender_is_admin = is_chat_admin(chat_id, user_id)
+
+        # أوامر التحكم والإشراف بالرد (للأدمنية فقط)
+        if message.reply_to_message and sender_is_admin:
+            target_id = message.reply_to_message.from_user.id
+            if text == "اكتمو":
+                try:
+                    bot.restrict_chat_member(chat_id, target_id, can_send_messages=False)
+                    bot.reply_to(message, "تم كتم العضو بنجاح 🤐")
+                except Exception as e:
+                    bot.reply_to(message, f"❌ متعذر الكتم: {e}")
+                return
+
+            elif text == "خليه يحكي":
+                try:
+                    bot.restrict_chat_member(
+                        chat_id, target_id, 
+                        can_send_messages=True, 
+                        can_send_media_messages=True, 
+                        can_send_other_messages=True, 
+                        can_add_web_page_previews=True
+                    )
+                    bot.reply_to(message, "تم فك الكتم عن العضو، خليه يحكي 🗣️")
+                except Exception as e:
+                    bot.reply_to(message, f"❌ متعذر فك الكتم: {e}")
+                return
+
+            elif text == "قلعو":
+                try:
+                    bot.ban_chat_member(chat_id, target_id)
+                    bot.reply_to(message, "تم طرد العضو من المجموعة بنجاح 🚪")
+                except Exception as e:
+                    bot.reply_to(message, f"❌ متعذر الطرد: {e}")
+                return
+
+        # حماية المجموعة من التوجيه والروابط والمعرفات (تطبق على الأعضاء فقط)
+        if is_bot_admin(chat_id) and not sender_is_admin:
+            # حذف الرسائل المحولة
             if message.forward_date or message.forward_from or message.forward_from_chat:
                 try:
                     bot.delete_message(chat_id, message.message_id)
-                    bot.send_message(chat_id, "مافيك تنسخا نسخ يعني؟")
+                    bot.send_message(chat_id, f"يعني مافيك تنسخها نسخ", reply_to_message_id=message.message_id)
                 except:
                     pass
                 return
 
-            has_link = bool(re.search(r'(https?://\S+|t\.me/\S+|\b\w+\.(com|net|org|site|online)\b)', text))
+            # حذف المعرفات
             has_username = bool(re.search(r'@[a-zA-Z0-9_]+', text))
-
-            if has_link or has_username:
+            if has_username:
                 try:
                     bot.delete_message(chat_id, message.message_id)
-                    bot.send_message(chat_id, "بس يا ابني كفاك روابط")
+                    bot.send_message(chat_id, "اسال صاحب لكروب اذا بيسمحلك ياطيب")
                 except:
                     pass
                 return
 
+            # حذف الروابط
+            has_link = bool(re.search(r'(https?://\S+|t\.me/\S+|\b\w+\.(com|net|org|site|online)\b)', text))
+            if has_link:
+                try:
+                    bot.delete_message(chat_id, message.message_id)
+                    bot.send_message(chat_id, "كفاك روابط يا بني")
+                except:
+                    pass
+                return
+
+    # 2. فحص السجن
     jailed, debt = is_user_jailed(user_id)
     if jailed and text not in ["دفع ديني", "دفع دينو"] and not (message.reply_to_message and "دفع دينو" in text):
         bot.reply_to(message, "انت مسجون ياحباب دفاع دينك قبل يافقير")
         return
 
+    # 3. معالجة إدخالات الأدمن أو الأوامر العامة
     if is_admin(user_id) and user_id in admin_states:
         handle_admin_inputs(message)
     else:
@@ -338,7 +444,24 @@ def process_bot_commands(message):
     user_id = message.from_user.id
     chat_id = message.chat.id
 
-    # 1. الردود المخصصة المتعددة والوسائط
+    # 1. أمر "شو انا"
+    if text == "شو انا":
+        try:
+            member = bot.get_chat_member(chat_id, user_id)
+            if user_id == ADMIN_ID or member.status == 'creator':
+                bot.reply_to(message, "انت المالك ياقلبي")
+            elif member.status == 'administrator' or is_admin(user_id):
+                bot.reply_to(message, "انت مشرف ياحبيبي")
+            else:
+                bot.reply_to(message, "انت عضو بس عضو من قلبي ♥️")
+        except:
+            if is_admin(user_id):
+                bot.reply_to(message, "انت مشرف ياحبيبي")
+            else:
+                bot.reply_to(message, "انت عضو بس عضو من قلبي ♥️")
+        return
+
+    # 2. الردود المخصصة المتعددة والوسائط
     conn = sqlite3.connect("bot_data.db")
     c = conn.cursor()
     c.execute("SELECT response, media_type, file_id FROM custom_replies WHERE keyword = ?", (text,))
@@ -355,7 +478,20 @@ def process_bot_commands(message):
             bot.reply_to(message, rep_text)
         return
 
-    # 2. الإجابة على الألعاب
+    # 3. الإجابة على لعبة من هو القاتل
+    if chat_id in active_crime_games:
+        game_data = active_crime_games[chat_id]
+        if text.lower() == game_data['killer'].lower():
+            update_balance(user_id, 50)
+            bot.reply_to(message, f"🎉 كفووو يا بطل! اكتشفت القاتل الحقيقي ({game_data['killer']}) وتم إغلاق القضية! 🕵️‍♂️\nتم إضافة **50 ليرة وهمية** لرصيدك!", parse_mode="Markdown")
+            del active_crime_games[chat_id]
+            return
+        elif any(suspect.strip().lower() in text.lower() for suspect in game_data['suspects'].split('،')):
+            responses = ["لساتك بعيد ❌", "ممكن يكون هو بس رجاع فكر 🔍"]
+            bot.reply_to(message, random.choice(responses))
+            return
+
+    # 4. الإجابة على باقي الألعاب
     if chat_id in active_riddles:
         if text.lower() == active_riddles[chat_id].lower():
             update_balance(user_id, 10)
@@ -377,27 +513,36 @@ def process_bot_commands(message):
             del active_guess_games[chat_id]
             return
 
-    # 3. الذكاء الاصطناعي (بدي اسالك)
+    # 5. الذكاء الاصطناعي (بدي اسالك)
     if text.startswith("بدي اسالك"):
         question = text.replace("بدي اسالك", "").strip()
         if not question:
-            bot.reply_to(message, "تفضل اكتب سؤالك بعد الأمر مباشرة.\nمثال: `بدي اسالك كم يبعد القمر؟`", parse_mode="Markdown")
+            bot.reply_to(message, "تفضل اكتب سؤالك بعد الأمر مباشرة.\nمثال: `بدي اسالك ماهو لون السماء`", parse_mode="Markdown")
             return
-        bot.send_chat_action(chat_id, 'typing')
+        
+        thinking_msg = bot.reply_to(message, "جاري التفكير... 🧠")
         ans = fetch_ai_answer(question)
-        bot.reply_to(message, ans)
+        try:
+            bot.edit_message_text(ans, chat_id, thinking_msg.message_id)
+        except:
+            bot.reply_to(message, ans)
         return
 
-    # 4. تحميل الصوت فوراً (سمعني)
+    # 6. تحميل الصوت فوراً (سمعني)
     if text.startswith("سمعني"):
         query = text.replace("سمعني", "").strip()
         if not query:
-            bot.reply_to(message, "يرجى كتابة اسم الأغنية بعد الأمر.\nمثال: `سمعني فيروز`", parse_mode="Markdown")
+            bot.reply_to(message, "يرجى كتابة اسم الأغنية بعد الأمر.\nمثال: `سمعني اصالة`", parse_mode="Markdown")
             return
         download_and_send_audio(chat_id, query, message.message_id)
         return
 
-    # 5. نظام القرض والدين
+    # 7. لعبة من هو القاتل
+    if text in ["القاتل", "من هو القاتل", "لعبة القاتل"]:
+        start_crime_game(chat_id)
+        return
+
+    # 8. نظام القرض والدين
     if text == "قرض":
         conn = sqlite3.connect("bot_data.db")
         c = conn.cursor()
@@ -431,7 +576,7 @@ def process_bot_commands(message):
                 update_balance(user_id, -debt_amount)
                 c.execute("UPDATE loans SET amount = 0 WHERE user_id = ?", (target_id,))
                 conn.commit()
-                bot.reply_to(message, f"✅ تم تسديد الدين بمبلغ {debt_amount} ليرة بنجاح والخرج من السجن!")
+                bot.reply_to(message, f"✅ تم تسديد الدين بمبلغ {debt_amount} ليرة بنجاح والخروج من السجن!")
             else:
                 bot.reply_to(message, f"❌ الرصيد غير كافي لتسديد الدين المحدد ({debt_amount} ليرة)!")
         else:
@@ -439,7 +584,7 @@ def process_bot_commands(message):
         conn.close()
         return
 
-    # 6. السرقة
+    # 9. السرقة
     if text in ["سرقة", "سرقه"]:
         if not message.reply_to_message:
             bot.reply_to(message, "⚠️ يجب أن تقوم بالرد (Reply) على رسالة العضو الذي تريد سرقته!")
@@ -486,35 +631,54 @@ def process_bot_commands(message):
         bot.reply_to(message, random.choice(funny_messages))
         return
 
-    # 7. نظام الاستثمار
+    # 10. نظام الاستثمار المقيد (كل 15 دقيقة)
     if text.startswith("استثمار"):
+        current_time = int(time.time())
+        conn = sqlite3.connect("bot_data.db")
+        c = conn.cursor()
+        c.execute("SELECT last_invest FROM invest_cooldowns WHERE user_id = ?", (user_id,))
+        row = c.fetchone()
+
+        if row and (current_time - row[0]) < 900: # 15 دقيقة = 900 ثانية
+            remaining_mins = int((900 - (current_time - row[0])) / 60) + 1
+            bot.reply_to(message, f"⏳ الاستثمار مقيد! يمكنك الاستثمار مرة واحدة كل 15 دقيقة.\nيرجى الانتظار: `{remaining_mins}` دقيقة.", parse_mode="Markdown")
+            conn.close()
+            return
+
         parts = text.split()
         if len(parts) >= 2 and parts[1].isdigit():
             inv_amount = int(parts[1])
             bal = get_balance(user_id)
             if inv_amount <= 0:
                 bot.reply_to(message, "⚠️ يجب إدخال مبلغ استثمار أكبر من 0.")
+                conn.close()
                 return
             if bal < inv_amount:
                 bot.reply_to(message, f"❌ رصيدك لا يكفي! معك حالياً {bal} ليرة.")
+                conn.close()
                 return
+
+            c.execute("INSERT INTO invest_cooldowns VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET last_invest = ?", (user_id, current_time, current_time))
+            conn.commit()
+            conn.close()
 
             is_success = random.choice([True, False])
             if is_success:
-                gain_percent = random.randint(15, 70)
+                gain_percent = random.randint(15, 80)
                 profit = int(inv_amount * (gain_percent / 100))
                 update_balance(user_id, profit)
-                bot.reply_to(message, f"📈 **استثمار ناجح!**\nارتفعت أسهمك بنسبة `{gain_percent}%` وربحت `{profit}` ليرة وهمية! 🎉", parse_mode="Markdown")
+                bot.reply_to(message, f"📈 **استثمار ناجح!**\nارتفعت الأسهم بنسبة `{gain_percent}%` وربحت `{profit}` ليرة وهمية! 🎉", parse_mode="Markdown")
             else:
                 loss_percent = random.randint(15, 60)
                 loss = int(inv_amount * (loss_percent / 100))
                 update_balance(user_id, -loss)
                 bot.reply_to(message, f"📉 **استثمار فاشل!**\nهبطت الأسهم بنسبة `{loss_percent}%` وخسرت `{loss}` ليرة وهمية! 💔", parse_mode="Markdown")
         else:
+            conn.close()
             bot.reply_to(message, "💡 للاستثمار أرسل:\n`استثمار [المبلغ]`\nمثال: `استثمار 100`", parse_mode="Markdown")
         return
 
-    # 8. لعبة العجلة
+    # 11. لعبة العجلة
     if text in ["عجلة", "العجلة", "لعبة العجلة"]:
         bal = get_balance(user_id)
         if bal < 50:
@@ -530,10 +694,10 @@ def process_bot_commands(message):
             update_balance(user_id, won)
             bot.reply_to(message, f"🎡 **درت عجلة الحظ!**\nتم خصم 50 ليرة... وربحت **{won}** ليرة وهمية! 🎉", parse_mode="Markdown")
         else:
-            bot.reply_to(message, "🎡 **درت عجلة الحظ!**\nتم خصم 50 ليرة... وخسرت 0 ليرة! حظاً أفر 💔", parse_mode="Markdown")
+            bot.reply_to(message, "🎡 **درت عجلة الحظ!**\nتم خصم 50 ليرة... وخسرت 0 ليرة! حظاً أفضل المرة القادمة 💔", parse_mode="Markdown")
         return
 
-    # 9. الألعاب المباشرة
+    # 12. باقي الألعاب المباشرة
     if text in ["اكسني", "لعبة اكس اوه"]:
         bot.send_message(chat_id, f"🎮 **لعبة XO جديدة!**\nالمنافس الأول: {message.from_user.first_name}\nاضغط للانضمام والمنافسة:", reply_markup=get_xo_keyboard(None, user_id, message.from_user.first_name))
         return
@@ -552,7 +716,7 @@ def process_bot_commands(message):
         bot.send_message(chat_id, "🎯 **تحدي خمن الرقم:**\nخمنت رقم من `1` إلى `20`!\nأول شخص يكتب الرقم الصحيح يربح 20 ليرة.", parse_mode="Markdown")
         return
 
-    # 10. باقي القوائم والمتجر
+    # 13. القوائم والمتجر والممتلكات
     if text in ["الالعاب", "الألعاب", "العاب"]:
         send_games_menu(chat_id)
         return
@@ -600,6 +764,8 @@ def process_bot_commands(message):
                     bot.reply_to(message, f"✅ تم شراء {count} {item_name} بنجاح!")
                 else:
                     bot.reply_to(message, "❌ رصيدك غير كافي!")
+            else:
+                bot.reply_to(message, "❌ هذا الصنف غير موجود بالمتجر!")
             conn.close()
         return
 
@@ -610,7 +776,7 @@ def process_bot_commands(message):
         items = c.fetchall()
         conn.close()
         if items:
-            msg_text = "📦 **ممتلكاتك الشحصية:**\n\n" + "\n".join([f"• {name}: {qty}" for name, qty in items])
+            msg_text = "📦 **ممتلكاتك الشخصية:**\n\n" + "\n".join([f"• {name}: {qty}" for name, qty in items])
             bot.send_message(chat_id, msg_text, parse_mode="Markdown")
         else:
             bot.send_message(chat_id, "لا تملك أي غرض حالياً.")
@@ -628,12 +794,13 @@ def process_bot_commands(message):
             bot.send_message(chat_id, "لا توجد أسئلة مضافة بعد.")
         return
 
-# ==================== قائمة الألعاب و XO ====================
+# ==================== إدارة الألعاب والـ XO والجرائم ====================
 def send_games_menu(chat_id):
     markup = types.InlineKeyboardMarkup(row_width=2)
     markup.add(
         types.InlineKeyboardButton("🎮 لعبة XO", callback_data="game_xo"),
         types.InlineKeyboardButton("🧩 حزرني", callback_data="game_riddle"),
+        types.InlineKeyboardButton("🔪 القاتل", callback_data="game_crime"),
         types.InlineKeyboardButton("🧮 تحدي الرياضيات", callback_data="game_math"),
         types.InlineKeyboardButton("🎯 خمن الرقم", callback_data="game_guess"),
         types.InlineKeyboardButton("🎡 عجلة الحظ", callback_data="game_wheel")
@@ -650,7 +817,20 @@ def start_riddle_game(chat_id):
         active_riddles[chat_id] = row[1]
         bot.send_message(chat_id, f"🧩 **حزورة جديدة:**\n{row[0]}\n\nأرسل الإجابة بالدردشة!")
     else:
-        bot.send_message(chat_id, "لا توجد حزازير مضافة.")
+        bot.send_message(chat_id, "لا توجد حزازير مضافة بعد.")
+
+def start_crime_game(chat_id):
+    conn = sqlite3.connect("bot_data.db")
+    c = conn.cursor()
+    c.execute("SELECT id, story, killer, suspects FROM crime_stories ORDER BY RANDOM() LIMIT 1")
+    row = c.fetchone()
+    conn.close()
+    if row:
+        active_crime_games[chat_id] = {'story_id': row[0], 'killer': row[2], 'suspects': row[3]}
+        msg = f"🔪 **لعبة من هو القاتل:**\n\n📜 {row[1]}\n\n👥 **المشتبه بهم:** {row[3]}\n\n💡 ارسل اسم القاتل لحل القضية وربح 50 ليرة وهمية!"
+        bot.send_message(chat_id, msg)
+    else:
+        bot.send_message(chat_id, "لا توجد قضايا مضافة بعد.")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('game_'))
 def handle_games_callbacks(call):
@@ -660,6 +840,8 @@ def handle_games_callbacks(call):
         bot.send_message(chat_id, f"🎮 لعبة XO جديدة!\nأنشأ اللعبة: {call.from_user.first_name}", reply_markup=get_xo_keyboard(None, call.from_user.id, call.from_user.first_name))
     elif action == "riddle":
         start_riddle_game(chat_id)
+    elif action == "crime":
+        start_crime_game(chat_id)
     elif action == "math":
         n1, n2 = random.randint(1, 50), random.randint(1, 50)
         active_math_games[chat_id] = n1 + n2
@@ -750,20 +932,26 @@ def handle_xo_callbacks(call):
             next_sym = game['symbols'][game['turn']]
             bot.edit_message_text(f"🎮 المباراة مستمرة بين:\n❌ {game['p1_name']}\n⭕ {game['p2_name']}\n\nالدور الحالي: {next_name} ({next_sym})", chat_id, msg_id, reply_markup=get_xo_keyboard(game))
 
-# ==================== لوحة الإدارة ====================
+# ==================== لوحة الإدارة السريعة والسجلات ====================
 def show_admin_panel(chat_id):
     markup = types.InlineKeyboardMarkup(row_width=2)
     markup.add(
         types.InlineKeyboardButton("إضافة ادمن ➕", callback_data="admin_add_admin"),
         types.InlineKeyboardButton("عرض الأدمنية 👥", callback_data="admin_list_admins"),
+        types.InlineKeyboardButton("إضافة صنف جديد 🛒", callback_data="admin_add_store_item"),
+        types.InlineKeyboardButton("إضافة قصة جريمة 🔪", callback_data="admin_add_crime"),
         types.InlineKeyboardButton("إضافة حزورة ➕", callback_data="admin_add_riddle"),
         types.InlineKeyboardButton("إضافة أسئلة ➕", callback_data="admin_add_q"),
         types.InlineKeyboardButton("إضافة ردود ➕", callback_data="admin_add_rep"),
-        types.InlineKeyboardButton("عرض الردود 👁️", callback_data="admin_view_reps"),
+        types.InlineKeyboardButton("سجل الأصناف 🛒", callback_data="admin_log_store"),
+        types.InlineKeyboardButton("سجل الأسئلة ❓", callback_data="admin_log_questions"),
+        types.InlineKeyboardButton("سجل الحزازير 🧩", callback_data="admin_log_riddles"),
+        types.InlineKeyboardButton("سجل الردود 💬", callback_data="admin_log_replies"),
+        types.InlineKeyboardButton("سجل إجابات الجرائم 🎯", callback_data="admin_log_crimes"),
         types.InlineKeyboardButton("🚪 مغادرة مجموعة", callback_data="admin_leave_grp"),
         types.InlineKeyboardButton("✉️ رسالة خاصة لجروب", callback_data="admin_send_grp_msg")
     )
-    bot.send_message(chat_id, "⚙️ **لوحة التحكم الإدارية السريعة:**", reply_markup=markup, parse_mode="Markdown")
+    bot.send_message(chat_id, "⚙️ **لوحة التحكم والإدارة الشاملة:**", reply_markup=markup, parse_mode="Markdown")
 
 @bot.message_handler(commands=['admin'])
 def admin_command(message):
@@ -781,6 +969,63 @@ def handle_admin_actions(call):
 
     if call.data == "open_admin_panel":
         show_admin_panel(chat_id)
+        return
+
+    # سجلات البيانات الضخمة
+    if call.data == "admin_log_store":
+        conn = sqlite3.connect("bot_data.db")
+        c = conn.cursor()
+        c.execute("SELECT item_name, price FROM store")
+        items = [f"السلعة: `{row[0]}` | السعر: `{row[1]}` ليرة" for row in c.fetchall()]
+        conn.close()
+        send_large_text(chat_id, "🛒 **سجل أصناف المتجر:**", items)
+        return
+
+    if call.data == "admin_log_questions":
+        conn = sqlite3.connect("bot_data.db")
+        c = conn.cursor()
+        c.execute("SELECT id, question FROM questions")
+        items = [f"ID `{row[0]}`: {row[1]}" for row in c.fetchall()]
+        conn.close()
+        send_large_text(chat_id, "❓ **سجل الأسئلة:**", items)
+        return
+
+    if call.data == "admin_log_riddles":
+        conn = sqlite3.connect("bot_data.db")
+        c = conn.cursor()
+        c.execute("SELECT id, question, answer FROM riddles")
+        items = [f"ID `{row[0]}`: {row[1]} 👈 الإجابة: `{row[2]}`" for row in c.fetchall()]
+        conn.close()
+        send_large_text(chat_id, "🧩 **سجل الحزازير:**", items)
+        return
+
+    if call.data == "admin_log_replies":
+        conn = sqlite3.connect("bot_data.db")
+        c = conn.cursor()
+        c.execute("SELECT id, keyword, response, media_type FROM custom_replies")
+        items = [f"ID `{row[0]}` | الكلمة: `{row[1]}` | الرد: `{row[2]}` | النوع: `{row[3]}`" for row in c.fetchall()]
+        conn.close()
+        send_large_text(chat_id, "💬 **سجل الردود المخصصة:**", items)
+        return
+
+    if call.data == "admin_log_crimes":
+        conn = sqlite3.connect("bot_data.db")
+        c = conn.cursor()
+        c.execute("SELECT id, killer, suspects FROM crime_stories")
+        items = [f"قضية `{row[0]}` 👈 القاتل الصحيح: **{row[1]}** | المشتبه بهم: ({row[2]})" for row in c.fetchall()]
+        conn.close()
+        send_large_text(chat_id, "🎯 **سجل الإجابات الصحيحة للجرائم:**", items)
+        return
+
+    # إجراءات إضافة المحتوى
+    if call.data == "admin_add_store_item":
+        admin_states[user_id] = "wait_store_item_name"
+        bot.send_message(chat_id, "أرسل اسم الصنف الجديد المراد إضافته للمتجر:")
+        return
+
+    if call.data == "admin_add_crime":
+        admin_states[user_id] = "wait_crime_story"
+        bot.send_message(chat_id, "أرسل نص قصة الجريمة جديدة:")
         return
 
     if call.data == "admin_leave_grp":
@@ -845,32 +1090,66 @@ def handle_admin_actions(call):
 
     elif action == "add_q":
         admin_states[user_id] = "wait_multi_q"
-        bot.send_message(chat_id, "أرسل الأسئلة الجديدة (يمكنك إرسال كل سؤال في سطر جديد للدفعة الواحدة):")
+        bot.send_message(chat_id, "أرسل الأسئلة الجديدة (يمكنك إرسال كل سؤال في سطر جديد):")
 
     elif action == "add_riddle":
         admin_states[user_id] = "wait_riddle_q"
         bot.send_message(chat_id, "أرسل نص الحزورة:")
 
-    elif action == "view_reps":
-        conn = sqlite3.connect("bot_data.db")
-        c = conn.cursor()
-        c.execute("SELECT id, keyword, response, media_type FROM custom_replies")
-        items = c.fetchall()
-        conn.close()
-        if items:
-            msg = "👁️ **قائمة الردود المخزنة:**\n\n"
-            for item in items:
-                msg += f"• ID: `{item[0]}` | الكلمة: `{item[1]}` | النوع: `{item[3]}`\n"
-            bot.send_message(chat_id, msg, parse_mode="Markdown")
-        else:
-            bot.send_message(chat_id, "لا توجد ردود مضافة.")
-
-# ==================== إدخالات الأدمن ====================
+# ==================== إدخالات الأدمن التفاعلية ====================
 def handle_admin_inputs(message):
     user_id = message.from_user.id
     state = admin_states.get(user_id)
     chat_id = message.chat.id
 
+    # 1. إضافة صنف جديد للمتجر
+    if state == "wait_store_item_name":
+        admin_states[f"{user_id}_temp_store_name"] = message.text.strip()
+        admin_states[user_id] = "wait_store_item_price"
+        bot.send_message(chat_id, "أرسل سعر الصنف بالليرات الوهمية (رقم فقط):")
+        return
+
+    if state == "wait_store_item_price":
+        if message.text.isdigit():
+            item_name = admin_states.pop(f"{user_id}_temp_store_name")
+            price = int(message.text)
+            conn = sqlite3.connect("bot_data.db")
+            conn.execute("INSERT OR REPLACE INTO store (item_name, price) VALUES (?, ?)", (item_name, price))
+            conn.commit()
+            conn.close()
+            del admin_states[user_id]
+            bot.send_message(chat_id, f"✅ تم إضافة الصنف `{item_name}` بسعر `{price}` ليرة بنجاح لتظهر في المتجر والممتلكات!", parse_mode="Markdown")
+        else:
+            bot.send_message(chat_id, "❌ يرجى إدخال رقم صحيح للسعر.")
+        return
+
+    # 2. إضافة قصة جريمة جديدة
+    if state == "wait_crime_story":
+        admin_states[f"{user_id}_temp_crime_story"] = message.text.strip()
+        admin_states[user_id] = "wait_crime_suspects"
+        bot.send_message(chat_id, "أرسل أسماء المشتبه بهم مفصولة بفواصل (مثال: فادي، مريم، سامر):")
+        return
+
+    if state == "wait_crime_suspects":
+        admin_states[f"{user_id}_temp_crime_suspects"] = message.text.strip()
+        admin_states[user_id] = "wait_crime_killer"
+        bot.send_message(chat_id, "أرسل اسم القاتل الحقيقي من بينهم:")
+        return
+
+    if state == "wait_crime_killer":
+        story = admin_states.pop(f"{user_id}_temp_crime_story")
+        suspects = admin_states.pop(f"{user_id}_temp_crime_suspects")
+        killer = message.text.strip()
+
+        conn = sqlite3.connect("bot_data.db")
+        conn.execute("INSERT INTO crime_stories (story, killer, suspects) VALUES (?, ?, ?)", (story, killer, suspects))
+        conn.commit()
+        conn.close()
+        del admin_states[user_id]
+        bot.send_message(chat_id, f"✅ تمت إضافة قصة الجريمة وتحديد القاتل (`{killer}`) بنجاح!", parse_mode="Markdown")
+        return
+
+    # 3. توجيه رسائل للمجموعات
     if state and state.startswith("wait_send_msg_"):
         target_chat_id = int(state.replace("wait_send_msg_", ""))
         try:
@@ -886,10 +1165,12 @@ def handle_admin_inputs(message):
         del admin_states[user_id]
         return
 
+    # 4. إضافة ردود
     if state == "wait_rep_key":
         admin_states[f'{user_id}_temp_key'] = message.text.strip()
         admin_states[user_id] = "wait_rep_val"
-        bot.send_message(chat_id, "أرسل الرد الآن (يمكن إرسال نص أو صورة أو فيديو، وإذا أرسلت أسطر متعددة سينزل كـ ردود عشوائية):")
+        bot.send_message(chat_id, "أرسل الرد الآن (يمكنك إرسال نص أو صورة أو فيديو):")
+        return
 
     elif state == "wait_rep_val":
         k = admin_states.pop(f'{user_id}_temp_key')
@@ -912,7 +1193,9 @@ def handle_admin_inputs(message):
         conn.close()
         del admin_states[user_id]
         bot.send_message(chat_id, f"✅ تم حفظ الردود للكلمة `{k}` بنجاح!", parse_mode="Markdown")
+        return
 
+    # 5. إضافة أسئلة وحزازير
     elif state == "wait_multi_q":
         lines = [line.strip() for line in message.text.split('\n') if line.strip()]
         conn = sqlite3.connect("bot_data.db")
@@ -922,11 +1205,13 @@ def handle_admin_inputs(message):
         conn.close()
         del admin_states[user_id]
         bot.send_message(chat_id, f"✅ تمت إضافة {len(lines)} سؤال/أسئلة بنجاح!")
+        return
 
     elif state == "wait_riddle_q":
         admin_states[f'{user_id}_temp_riddle'] = message.text
         admin_states[user_id] = "wait_riddle_a"
         bot.send_message(chat_id, "أرسل إجابة الحزورة:")
+        return
 
     elif state == "wait_riddle_a":
         q = admin_states.pop(f'{user_id}_temp_riddle')
@@ -936,6 +1221,7 @@ def handle_admin_inputs(message):
         conn.close()
         del admin_states[user_id]
         bot.send_message(chat_id, "✅ تمت إضافة الحزورة بنجاح!")
+        return
 
 # ==================== التشغيل المستمر ====================
 if __name__ == "__main__":
