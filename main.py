@@ -219,7 +219,7 @@ def send_large_text(chat_id, header, items_list):
     if current_msg:
         bot.send_message(chat_id, current_msg)
 
-# ==================== محرك البحث والذكاء الاصطناعي (مباشر وبدون روابط) ====================
+# ==================== محرك البحث والذكاء الاصطناعي (المحدث والسريع جداً) ====================
 def fetch_ai_answer(question):
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
@@ -228,54 +228,81 @@ def fetch_ai_answer(question):
 
     sys_prompt = "أنت مساعد ذكي واسمك فرفوش. أجب عن سؤال المستخدم باللغة العربية بشكل دقيق ومباشر ومنطقي. يمنع منعاً باتاً ذكر أي روابط أو مواقع أو الإشارة إلى المصادر. إجابتك يجب أن تكون المضمون المباشر فقط."
 
-    # 1. المحاولة عبر نموذج ذكاء اصطناعي ذكي وسريع يجيب فوراً وبشكل منطقي
+    # 1. المحاولة الأولى: Pollinations عبر POST (الأسرع والأكثر استقراراً)
     try:
-        url = f"https://text.pollinations.ai/{requests.utils.quote(question)}?system={requests.utils.quote(sys_prompt)}&model=openai"
-        res = requests.get(url, headers=headers, timeout=8)
+        payload = {
+            "messages": [
+                {"role": "system", "content": sys_prompt},
+                {"role": "user", "content": question}
+            ],
+            "model": "openai"
+        }
+        res = requests.post("https://text.pollinations.ai/", json=payload, headers=headers, timeout=8)
         if res.status_code == 200 and res.text:
             ans = clean_urls_and_sources(res.text)
-            if ans and not any(bad in ans.lower() for bad in ["timed out", "error", "504", "403", "html", "cloudflare"]):
+            if ans and len(ans) > 3 and not any(bad in ans.lower() for bad in ["timed out", "error", "504", "403", "html", "cloudflare", "bad gateway"]):
                 return ans
     except Exception:
         pass
 
-    # 2. نموذج احتياطي ثانٍ للسرعة
+    # 2. المحاولة الثانية: Pollinations عبر نماذج متعددة (Mistral / SearchGPT)
+    for model in ["mistral", "searchgpt"]:
+        try:
+            url = f"https://text.pollinations.ai/{requests.utils.quote(question)}?model={model}&system={requests.utils.quote(sys_prompt)}"
+            res = requests.get(url, headers=headers, timeout=6)
+            if res.status_code == 200 and res.text:
+                ans = clean_urls_and_sources(res.text)
+                if ans and len(ans) > 3 and not any(bad in ans.lower() for bad in ["timed out", "error", "504", "403", "html", "cloudflare", "bad gateway"]):
+                    return ans
+        except Exception:
+            pass
+
+    # 3. المحاولة الثالثة: البحث في ويكيبيديا (بحث العناوين ثم جلب الملخص)
     try:
-        url = f"https://text.pollinations.ai/{requests.utils.quote(question)}?system={requests.utils.quote(sys_prompt)}&model=qwen"
-        res = requests.get(url, headers=headers, timeout=8)
-        if res.status_code == 200 and res.text:
-            ans = clean_urls_and_sources(res.text)
-            if ans and not any(bad in ans.lower() for bad in ["timed out", "error", "504", "403", "html", "cloudflare"]):
-                return ans
+        search_url = f"https://ar.wikipedia.org/w/api.php?action=query&list=search&srsearch={requests.utils.quote(question)}&utf8=&format=json"
+        s_res = requests.get(search_url, headers=headers, timeout=5)
+        if s_res.status_code == 200:
+            s_data = s_res.json()
+            search_results = s_data.get("query", {}).get("search", [])
+            if search_results:
+                top_title = search_results[0]["title"]
+                summary_url = f"https://ar.wikipedia.org/api/rest_v1/page/summary/{requests.utils.quote(top_title)}"
+                sum_res = requests.get(summary_url, headers=headers, timeout=5)
+                if sum_res.status_code == 200:
+                    sum_data = sum_res.json()
+                    extract = sum_data.get("extract")
+                    if extract:
+                        return clean_urls_and_sources(extract)
     except Exception:
         pass
 
-    # 3. جلب نصوص النتائج المباشرة من الويب بدون روابط
+    # 4. المحاولة الرابعة: DuckDuckGo Instant Answer API
+    try:
+        ddg_api = f"https://api.duckduckgo.com/?q={requests.utils.quote(question)}&format=json&no_html=1&skip_disambig=1"
+        res = requests.get(ddg_api, headers=headers, timeout=5)
+        if res.status_code == 200:
+            data = res.json()
+            abstract = data.get("AbstractText")
+            if abstract:
+                return clean_urls_and_sources(abstract)
+    except Exception:
+        pass
+
+    # 5. المحاولة الخامسة: جلب نتائج DuckDuckGo HTML المباشرة
     try:
         ddg_url = f"https://html.duckduckgo.com/html/?q={requests.utils.quote(question)}"
-        res = requests.get(ddg_url, headers=headers, timeout=6)
+        res = requests.get(ddg_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
         if res.status_code == 200:
             from bs4 import BeautifulSoup
             soup = BeautifulSoup(res.text, 'html.parser')
             results = soup.find_all('a', class_='result__snippet')
             snippets = []
-            for r in results[:3]:
+            for r in results[:2]:
                 snip = clean_urls_and_sources(r.get_text().strip())
                 if snip:
                     snippets.append(snip)
             if snippets:
                 return "\n\n".join(snippets)
-    except Exception:
-        pass
-
-    # 4. محاولة جلب ملخص معلوماتي من ويكيبيديا للأسئلة الثقافية
-    try:
-        wiki_url = f"https://ar.wikipedia.org/api/rest_v1/page/summary/{requests.utils.quote(question)}"
-        res = requests.get(wiki_url, headers=headers, timeout=5)
-        if res.status_code == 200:
-            data = res.json()
-            if "extract" in data and data["extract"]:
-                return clean_urls_and_sources(data["extract"])
     except Exception:
         pass
 
