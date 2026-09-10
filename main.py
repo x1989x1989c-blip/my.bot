@@ -217,88 +217,30 @@ def send_large_text(chat_id, header, items_list):
     if current_msg:
         bot.send_message(chat_id, current_msg, parse_mode="Markdown")
 
-# ==================== محرك البحث والذكاء الاصطناعي (جوجل مع المصدر) ====================
+# ==================== محرك البحث والذكاء الاصطناعي (بدون روابط وبدون ذكر المصدر) ====================
 def fetch_ai_answer(question):
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
         "Accept-Language": "ar,en-US;q=0.9,en;q=0.8"
     }
 
-    # 1. البحث في محرك جوجل المباشر مع استخراج المصادر
+    sys_prompt = "أنت مساعد ذكي ومحرك بحث متمكن. أجب على السؤال التالي باللغة العربية بأسلوب مباشر، منطقي، وشامل. يُمنع منعاً باتاً ذكر مصادر المعلومة، أو وضع أي روابط أو مواقع، أو الإشارة إلى أنك جلبتها من البحث. قدم الإجابة المباشرة فقط بدون مقدمات."
+
+    # 1. المحاولة عبر محرك البحث والذكاء الاصطناعي السريع
     try:
-        url = f"https://www.google.com/search?q={requests.utils.quote(question)}&hl=ar"
-        res = requests.get(url, headers=headers, timeout=7)
-        if res.status_code == 200:
-            from bs4 import BeautifulSoup
-            soup = BeautifulSoup(res.text, 'html.parser')
-            
-            # استخراج النتيجة المباشرة
-            snippet = ""
-            snippet_elem = soup.find("div", class_=re.compile(r"(BNeaWE|VwiC3b|kno-rdesc|hgKBDc)"))
-            if snippet_elem:
-                snippet = clean_urls(snippet_elem.get_text(separator=" ").strip())
-
-            # استخراج النتائج والمصادر
-            sources = []
-            for g in soup.find_all('div', class_='g'):
-                a_tag = g.find('a')
-                h3_tag = g.find('h3')
-                desc_tag = g.find('div', class_=re.compile(r'(VwiC3b|BNeaWE)'))
-                if a_tag and h3_tag and desc_tag:
-                    link = a_tag.get('href', '')
-                    title = h3_tag.get_text().strip()
-                    desc = clean_urls(desc_tag.get_text().strip())
-                    if link.startswith('http') and 'google.com' not in link:
-                        sources.append((title, desc, link))
-                        if len(sources) >= 2:
-                            break
-
-            if snippet or sources:
-                reply = f"🌐 **نتائج البحث من محرك Google:**\n\n"
-                if snippet:
-                    reply += f"💡 **الإجابة:**\n{snippet}\n\n"
-                if sources:
-                    reply += "📌 **المصادر:**\n"
-                    for title, desc, link in sources:
-                        reply += f"• **{title}**\n{desc}\n🔗 **المصدر:** {link}\n\n"
-                return reply.strip()
-    except Exception:
-        pass
-
-    # 2. المحاولة عبر DuckDuckGo كخيار ثاني لاستخراج نتائج جوجل/الويب
-    try:
-        ddg_url = f"https://html.duckduckgo.com/html/?q={requests.utils.quote(question)}"
-        res = requests.get(ddg_url, headers=headers, timeout=6)
-        if res.status_code == 200:
-            from bs4 import BeautifulSoup
-            soup = BeautifulSoup(res.text, 'html.parser')
-            results = soup.find_all('div', class_='result')
-            sources = []
-            for r in results[:2]:
-                a_tag = r.find('a', class_='result__url')
-                title_tag = r.find('a', class_='result__a')
-                snippet_tag = r.find('a', class_='result__snippet')
-                if title_tag and snippet_tag:
-                    title = title_tag.get_text().strip()
-                    snip = clean_urls(snippet_tag.get_text().strip())
-                    link = a_tag.get('href', '').strip() if a_tag else ""
-                    sources.append((title, snip, link))
-            if sources:
-                reply = f"🌐 **نتائج البحث:**\n\n"
-                for title, snip, link in sources:
-                    reply += f"💡 **{title}**\n{snip}\n"
-                    if link:
-                        reply += f"🔗 **المصدر:** {link}\n"
-                    reply += "\n"
-                return reply.strip()
-    except Exception:
-        pass
-
-    # 3. المحاولة عبر نموذج AI احتياطي
-    try:
-        sys_prompt = "أنت مساعد ذكي ومرح واسمك فرفوش. أجب على كافة الأسئلة باللغة العربية بشكل واضح وبدون روابط."
         url = f"https://text.pollinations.ai/{requests.utils.quote(question)}?system={requests.utils.quote(sys_prompt)}&model=openai"
-        res = requests.get(url, headers=headers, timeout=6)
+        res = requests.get(url, headers=headers, timeout=7)
+        if res.status_code == 200 and res.text:
+            ans = clean_urls(res.text.strip())
+            if ans and not any(bad in ans.lower() for bad in ["timed out", "error", "504", "403", "html", "bad gateway"]):
+                return ans
+    except Exception:
+        pass
+
+    # 2. المحاولة الاحتياطية عبر نموذج متطور آخر
+    try:
+        url = f"https://text.pollinations.ai/{requests.utils.quote(question)}?system={requests.utils.quote(sys_prompt)}&model=mistral"
+        res = requests.get(url, headers=headers, timeout=7)
         if res.status_code == 200 and res.text:
             ans = clean_urls(res.text.strip())
             if ans and not any(bad in ans.lower() for bad in ["timed out", "error", "504", "403", "html"]):
@@ -306,7 +248,27 @@ def fetch_ai_answer(question):
     except Exception:
         pass
 
-    return "تعذر جلب نتائج البحث من جوجل حالياً، يرجى إعادة المحاولة بعد لحظات."
+    # 3. جلب نتائج بحث نصوص صافية وبدون روابط كخيار أخير
+    try:
+        ddg_url = f"https://html.duckduckgo.com/html/?q={requests.utils.quote(question)}"
+        res = requests.get(ddg_url, headers=headers, timeout=6)
+        if res.status_code == 200:
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(res.text, 'html.parser')
+            results = soup.find_all('div', class_='result')
+            snippets = []
+            for r in results[:2]:
+                snippet_tag = r.find('a', class_='result__snippet')
+                if snippet_tag:
+                    snip = clean_urls(snippet_tag.get_text().strip())
+                    if snip:
+                        snippets.append(snip)
+            if snippets:
+                return "\n\n".join(snippets)
+    except Exception:
+        pass
+
+    return "عذراً، لم أستطع العثور على إجابة دقيقة حالياً، يرجى إعادة المحاولة لاحقاً."
 
 # ==================== خدمة تحميل الأغاني المعدلة والمتطورة ====================
 def download_and_send_audio(chat_id, query, message_id):
@@ -602,15 +564,15 @@ def process_bot_commands(message):
     if text.startswith("بدي اسالك"):
         question = text.replace("بدي اسالك", "").strip()
         if not question:
-            bot.reply_to(message, "تفضل اكتب سؤالك بعد الأمر مباشرة.\nمثال: `بدي اسالك كيف الجو اليوم`", parse_mode="Markdown")
+            bot.reply_to(message, "تفضل اكتب سؤالك بعد الأمر مباشرة.\nمثال: `بدي اسالك كيف اجني مال`", parse_mode="Markdown")
             return
         
-        thinking_msg = bot.reply_to(message, "جاري البحث والإجابة... 🔍")
+        thinking_msg = bot.reply_to(message, "جاري التفكير والإجابة... 🔍")
         ans = fetch_ai_answer(question)
         try:
-            bot.edit_message_text(ans, chat_id, thinking_msg.message_id, parse_mode="Markdown")
+            bot.edit_message_text(ans, chat_id, thinking_msg.message_id)
         except:
-            bot.reply_to(message, ans, parse_mode="Markdown")
+            bot.reply_to(message, ans)
         return
 
     # 6. تحميل الصوت فوراً (سمعني)
