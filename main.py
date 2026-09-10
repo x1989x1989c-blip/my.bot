@@ -219,94 +219,56 @@ def send_large_text(chat_id, header, items_list):
     if current_msg:
         bot.send_message(chat_id, current_msg)
 
-# ==================== محرك البحث والذكاء الاصطناعي (المحدث والسريع جداً) ====================
+# ==================== محرك البحث والذكاء الاصطناعي (المعدل للإجابة الدقيقة) ====================
 def fetch_ai_answer(question):
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
-        "Accept-Language": "ar,en-US;q=0.9,en;q=0.8"
+        "Accept-Language": "ar,en-US;q=0.9,en;q=0.8",
+        "Content-Type": "application/json"
     }
 
-    sys_prompt = "أنت مساعد ذكي واسمك فرفوش. أجب عن سؤال المستخدم باللغة العربية بشكل دقيق ومباشر ومنطقي. يمنع منعاً باتاً ذكر أي روابط أو مواقع أو الإشارة إلى المصادر. إجابتك يجب أن تكون المضمون المباشر فقط."
+    sys_prompt = (
+        "أنت مساعد ذكي ومفيد واسمك فرفوش. أجب عن سؤال المستخدم باللغة العربية بشكل دقيق جداً، "
+        "ومباشر، ومنطقي، ومطابق تماماً للمطلوب. يمنع منعاً باتاً الإجابة عن شيء آخر غير السؤال. "
+        "يمنع ذكر أي روابط أو مواقع أو الإشارة للمصادر. قم بإعطاء خطوات أو إجابة واضحة ومباشرة."
+    )
 
-    # 1. المحاولة الأولى: Pollinations عبر POST (الأسرع والأكثر استقراراً)
-    try:
-        payload = {
-            "messages": [
-                {"role": "system", "content": sys_prompt},
-                {"role": "user", "content": question}
-            ],
-            "model": "openai"
-        }
-        res = requests.post("https://text.pollinations.ai/", json=payload, headers=headers, timeout=8)
-        if res.status_code == 200 and res.text:
-            ans = clean_urls_and_sources(res.text)
-            if ans and len(ans) > 3 and not any(bad in ans.lower() for bad in ["timed out", "error", "504", "403", "html", "cloudflare", "bad gateway"]):
-                return ans
-    except Exception:
-        pass
+    models = ["openai", "qwen", "mistral", "deepseek", "llama"]
 
-    # 2. المحاولة الثانية: Pollinations عبر نماذج متعددة (Mistral / SearchGPT)
-    for model in ["mistral", "searchgpt"]:
+    # 1. المحاولة عبر POST بجميع نماذج الذكاء الاصطناعي التوليدية
+    for model in models:
         try:
-            url = f"https://text.pollinations.ai/{requests.utils.quote(question)}?model={model}&system={requests.utils.quote(sys_prompt)}"
-            res = requests.get(url, headers=headers, timeout=6)
+            payload = {
+                "messages": [
+                    {"role": "system", "content": sys_prompt},
+                    {"role": "user", "content": question}
+                ],
+                "model": model,
+                "seed": random.randint(1, 100000)
+            }
+            res = requests.post("https://text.pollinations.ai/", json=payload, headers=headers, timeout=10)
             if res.status_code == 200 and res.text:
                 ans = clean_urls_and_sources(res.text)
-                if ans and len(ans) > 3 and not any(bad in ans.lower() for bad in ["timed out", "error", "504", "403", "html", "cloudflare", "bad gateway"]):
+                if ans and len(ans) > 5 and not any(bad in ans.lower() for bad in ["timed out", "error", "504", "403", "html", "cloudflare", "bad gateway", "service unavailable"]):
                     return ans
         except Exception:
-            pass
+            continue
 
-    # 3. المحاولة الثالثة: البحث في ويكيبيديا (بحث العناوين ثم جلب الملخص)
-    try:
-        search_url = f"https://ar.wikipedia.org/w/api.php?action=query&list=search&srsearch={requests.utils.quote(question)}&utf8=&format=json"
-        s_res = requests.get(search_url, headers=headers, timeout=5)
-        if s_res.status_code == 200:
-            s_data = s_res.json()
-            search_results = s_data.get("query", {}).get("search", [])
-            if search_results:
-                top_title = search_results[0]["title"]
-                summary_url = f"https://ar.wikipedia.org/api/rest_v1/page/summary/{requests.utils.quote(top_title)}"
-                sum_res = requests.get(summary_url, headers=headers, timeout=5)
-                if sum_res.status_code == 200:
-                    sum_data = sum_res.json()
-                    extract = sum_data.get("extract")
-                    if extract:
-                        return clean_urls_and_sources(extract)
-    except Exception:
-        pass
+    # 2. المحاولة عبر GET بالنظام المعزز
+    for model in ["openai", "qwen", "mistral"]:
+        try:
+            encoded_q = requests.utils.quote(question)
+            encoded_sys = requests.utils.quote(sys_prompt)
+            url = f"https://text.pollinations.ai/{encoded_q}?model={model}&system={encoded_sys}&cache=false"
+            res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=8)
+            if res.status_code == 200 and res.text:
+                ans = clean_urls_and_sources(res.text)
+                if ans and len(ans) > 5 and not any(bad in ans.lower() for bad in ["timed out", "error", "504", "403", "html", "cloudflare", "bad gateway"]):
+                    return ans
+        except Exception:
+            continue
 
-    # 4. المحاولة الرابعة: DuckDuckGo Instant Answer API
-    try:
-        ddg_api = f"https://api.duckduckgo.com/?q={requests.utils.quote(question)}&format=json&no_html=1&skip_disambig=1"
-        res = requests.get(ddg_api, headers=headers, timeout=5)
-        if res.status_code == 200:
-            data = res.json()
-            abstract = data.get("AbstractText")
-            if abstract:
-                return clean_urls_and_sources(abstract)
-    except Exception:
-        pass
-
-    # 5. المحاولة الخامسة: جلب نتائج DuckDuckGo HTML المباشرة
-    try:
-        ddg_url = f"https://html.duckduckgo.com/html/?q={requests.utils.quote(question)}"
-        res = requests.get(ddg_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
-        if res.status_code == 200:
-            from bs4 import BeautifulSoup
-            soup = BeautifulSoup(res.text, 'html.parser')
-            results = soup.find_all('a', class_='result__snippet')
-            snippets = []
-            for r in results[:2]:
-                snip = clean_urls_and_sources(r.get_text().strip())
-                if snip:
-                    snippets.append(snip)
-            if snippets:
-                return "\n\n".join(snippets)
-    except Exception:
-        pass
-
-    return "عذراً، تعذر الوصول إلى الإجابة حالياً. يرجى إعادة المحاولة لاحقاً."
+    return "عذراً، تعذر الوصول إلى إجابة دقيقة حالياً. يرجى إعادة المحاولة بعد قليل."
 
 # ==================== خدمة تحميل الأغاني ====================
 def download_and_send_audio(chat_id, query, message_id):
