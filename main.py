@@ -217,24 +217,88 @@ def send_large_text(chat_id, header, items_list):
     if current_msg:
         bot.send_message(chat_id, current_msg, parse_mode="Markdown")
 
-# ==================== محرك الذكاء الاصطناعي المعدل ====================
+# ==================== محرك البحث والذكاء الاصطناعي (جوجل مع المصدر) ====================
 def fetch_ai_answer(question):
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+        "Accept-Language": "ar,en-US;q=0.9,en;q=0.8"
     }
-    sys_prompt = "أنت مساعد ذكي ومرح واسمك فرفوش. أجب على كافة الأسئلة باللغة العربية بشكل منطقي، واقعي، وواضح وبدون وضع روابط."
 
-    # المحاولة الأولى: Pollinations POST API
+    # 1. البحث في محرك جوجل المباشر مع استخراج المصادر
     try:
-        url = "https://text.pollinations.ai/"
-        payload = {
-            "messages": [
-                {"role": "system", "content": sys_prompt},
-                {"role": "user", "content": question}
-            ],
-            "model": "openai"
-        }
-        res = requests.post(url, json=payload, headers=headers, timeout=8)
+        url = f"https://www.google.com/search?q={requests.utils.quote(question)}&hl=ar"
+        res = requests.get(url, headers=headers, timeout=7)
+        if res.status_code == 200:
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(res.text, 'html.parser')
+            
+            # استخراج النتيجة المباشرة
+            snippet = ""
+            snippet_elem = soup.find("div", class_=re.compile(r"(BNeaWE|VwiC3b|kno-rdesc|hgKBDc)"))
+            if snippet_elem:
+                snippet = clean_urls(snippet_elem.get_text(separator=" ").strip())
+
+            # استخراج النتائج والمصادر
+            sources = []
+            for g in soup.find_all('div', class_='g'):
+                a_tag = g.find('a')
+                h3_tag = g.find('h3')
+                desc_tag = g.find('div', class_=re.compile(r'(VwiC3b|BNeaWE)'))
+                if a_tag and h3_tag and desc_tag:
+                    link = a_tag.get('href', '')
+                    title = h3_tag.get_text().strip()
+                    desc = clean_urls(desc_tag.get_text().strip())
+                    if link.startswith('http') and 'google.com' not in link:
+                        sources.append((title, desc, link))
+                        if len(sources) >= 2:
+                            break
+
+            if snippet or sources:
+                reply = f"🌐 **نتائج البحث من محرك Google:**\n\n"
+                if snippet:
+                    reply += f"💡 **الإجابة:**\n{snippet}\n\n"
+                if sources:
+                    reply += "📌 **المصادر:**\n"
+                    for title, desc, link in sources:
+                        reply += f"• **{title}**\n{desc}\n🔗 **المصدر:** {link}\n\n"
+                return reply.strip()
+    except Exception:
+        pass
+
+    # 2. المحاولة عبر DuckDuckGo كخيار ثاني لاستخراج نتائج جوجل/الويب
+    try:
+        ddg_url = f"https://html.duckduckgo.com/html/?q={requests.utils.quote(question)}"
+        res = requests.get(ddg_url, headers=headers, timeout=6)
+        if res.status_code == 200:
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(res.text, 'html.parser')
+            results = soup.find_all('div', class_='result')
+            sources = []
+            for r in results[:2]:
+                a_tag = r.find('a', class_='result__url')
+                title_tag = r.find('a', class_='result__a')
+                snippet_tag = r.find('a', class_='result__snippet')
+                if title_tag and snippet_tag:
+                    title = title_tag.get_text().strip()
+                    snip = clean_urls(snippet_tag.get_text().strip())
+                    link = a_tag.get('href', '').strip() if a_tag else ""
+                    sources.append((title, snip, link))
+            if sources:
+                reply = f"🌐 **نتائج البحث:**\n\n"
+                for title, snip, link in sources:
+                    reply += f"💡 **{title}**\n{snip}\n"
+                    if link:
+                        reply += f"🔗 **المصدر:** {link}\n"
+                    reply += "\n"
+                return reply.strip()
+    except Exception:
+        pass
+
+    # 3. المحاولة عبر نموذج AI احتياطي
+    try:
+        sys_prompt = "أنت مساعد ذكي ومرح واسمك فرفوش. أجب على كافة الأسئلة باللغة العربية بشكل واضح وبدون روابط."
+        url = f"https://text.pollinations.ai/{requests.utils.quote(question)}?system={requests.utils.quote(sys_prompt)}&model=openai"
+        res = requests.get(url, headers=headers, timeout=6)
         if res.status_code == 200 and res.text:
             ans = clean_urls(res.text.strip())
             if ans and not any(bad in ans.lower() for bad in ["timed out", "error", "504", "403", "html"]):
@@ -242,33 +306,9 @@ def fetch_ai_answer(question):
     except Exception:
         pass
 
-    # المحاولة الثانية: Pollinations GET بأساليب مختلفة
-    for model_name in ["openai", "mistral", "qwen-coder"]:
-        try:
-            url = f"https://text.pollinations.ai/{requests.utils.quote(question)}?system={requests.utils.quote(sys_prompt)}&model={model_name}"
-            res = requests.get(url, headers=headers, timeout=7)
-            if res.status_code == 200 and res.text:
-                ans = clean_urls(res.text.strip())
-                if ans and not any(bad in ans.lower() for bad in ["timed out", "error", "504", "403", "html"]):
-                    return ans
-        except Exception:
-            pass
+    return "تعذر جلب نتائج البحث من جوجل حالياً، يرجى إعادة المحاولة بعد لحظات."
 
-    # المحاولة الثالثة: Popcat AI Fallback
-    try:
-        res = requests.get(f"https://api.popcat.xyz/chatbot?msg={requests.utils.quote(question)}", headers=headers, timeout=5)
-        if res.status_code == 200:
-            data = res.json()
-            if "response" in data and data["response"]:
-                ans = clean_urls(data["response"])
-                if ans and not any(bad in ans.lower() for bad in ["timed out", "error"]):
-                    return ans
-    except Exception:
-        pass
-
-    return "أنا بخير والحمد لله! تعذر الاتصال بالمحرك المؤقت، يرجى إعادة المحاولة بعد لحظات."
-
-# ==================== خدمة تحميل الأغاني المعدلة ====================
+# ==================== خدمة تحميل الأغاني المعدلة والمتطورة ====================
 def download_and_send_audio(chat_id, query, message_id):
     status_msg = bot.send_message(chat_id, f"🔍 جاري البحث وتحميل الأغنية: **{query}**...", parse_mode="Markdown")
     if not os.path.exists('downloads'):
@@ -277,9 +317,8 @@ def download_and_send_audio(chat_id, query, message_id):
     file_prefix = f"downloads/{int(time.time())}_{random.randint(1000,9999)}"
     output_template = f"{file_prefix}.%(ext)s"
 
-    ydl_opts = {
-        'format': 'bestaudio/best',
-        'default_search': 'ytsearch1:',
+    ydl_opts_base = {
+        'format': 'bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio/best',
         'outtmpl': output_template,
         'noplaylist': True,
         'quiet': True,
@@ -288,52 +327,64 @@ def download_and_send_audio(chat_id, query, message_id):
         'geo_bypass': True,
         'cachedir': False,
         'headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
             'Accept-Language': 'ar,en-US;q=0.9,en;q=0.8',
         },
         'extractor_args': {
             'youtube': {
-                'player_client': ['android', 'ios', 'mweb']
+                'player_client': ['mweb', 'android', 'web', 'ios'],
+                'player_skip': ['webpage', 'configs']
             }
         }
     }
 
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(query, download=True)
-            if info and 'entries' in info and len(info['entries']) > 0:
-                video = info['entries'][0]
-                title = video.get('title', query)
-                uploader = video.get('uploader', 'فرفوش')
+    search_sources = [
+        f"ytsearch1:{query}",
+        f"scsearch1:{query}"
+    ]
 
-                downloaded_file = None
-                for ext in ['m4a', 'mp3', 'webm', 'opus', 'mp4']:
-                    possible_path = f"{file_prefix}.{ext}"
-                    if os.path.exists(possible_path):
-                        downloaded_file = possible_path
-                        break
+    for source in search_sources:
+        try:
+            opts = ydl_opts_base.copy()
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(source, download=True)
+                if info:
+                    if 'entries' in info and len(info['entries']) > 0:
+                        video = info['entries'][0]
+                    else:
+                        video = info
+                    
+                    title = video.get('title', query)
+                    uploader = video.get('uploader', 'فرفوش')
 
-                if downloaded_file and os.path.exists(downloaded_file):
-                    with open(downloaded_file, 'rb') as audio:
-                        bot.send_audio(chat_id, audio, title=title, performer=uploader, reply_to_message_id=message_id)
-                    bot.delete_message(chat_id, status_msg.message_id)
-                    try:
-                        os.remove(downloaded_file)
-                    except:
-                        pass
-                    return
+                    downloaded_file = None
+                    for ext in ['m4a', 'mp3', 'webm', 'opus', 'mp4']:
+                        possible_path = f"{file_prefix}.{ext}"
+                        if os.path.exists(possible_path):
+                            downloaded_file = possible_path
+                            break
 
-        bot.edit_message_text("❌ لم يتم العثور على نتائج للأغنية.", chat_id, status_msg.message_id)
-    except Exception as e:
-        print(f"YouTube Download Error: {e}")
-        bot.edit_message_text("❌ حدث خطأ أثناء التحميل، يرجى المحاولة بعد قليل.", chat_id, status_msg.message_id)
-        for ext in ['m4a', 'mp3', 'webm', 'opus', 'mp4']:
-            p = f"{file_prefix}.{ext}"
-            if os.path.exists(p):
-                try:
-                    os.remove(p)
-                except:
-                    pass
+                    if downloaded_file and os.path.exists(downloaded_file):
+                        with open(downloaded_file, 'rb') as audio:
+                            bot.send_audio(chat_id, audio, title=title, performer=uploader, reply_to_message_id=message_id)
+                        bot.delete_message(chat_id, status_msg.message_id)
+                        try:
+                            os.remove(downloaded_file)
+                        except:
+                            pass
+                        return
+        except Exception as e:
+            print(f"Download error on source {source}: {e}")
+            continue
+
+    bot.edit_message_text("❌ متعذر تحميل الأغنية حالياً، يرجى إعادة المحاولة لاحقاً.", chat_id, status_msg.message_id)
+    for ext in ['m4a', 'mp3', 'webm', 'opus', 'mp4']:
+        p = f"{file_prefix}.{ext}"
+        if os.path.exists(p):
+            try:
+                os.remove(p)
+            except:
+                pass
 
 # ==================== الترحيب عند إضافة البوت لمجموعة ====================
 @bot.message_handler(content_types=['new_chat_members'])
@@ -547,19 +598,19 @@ def process_bot_commands(message):
             del active_guess_games[chat_id]
             return
 
-    # 5. الذكاء الاصطناعي (بدي اسالك)
+    # 5. الذكاء الاصطناعي وجوجل (بدي اسالك)
     if text.startswith("بدي اسالك"):
         question = text.replace("بدي اسالك", "").strip()
         if not question:
             bot.reply_to(message, "تفضل اكتب سؤالك بعد الأمر مباشرة.\nمثال: `بدي اسالك كيف الجو اليوم`", parse_mode="Markdown")
             return
         
-        thinking_msg = bot.reply_to(message, "جاري التفكير... 🧠")
+        thinking_msg = bot.reply_to(message, "جاري البحث والإجابة... 🔍")
         ans = fetch_ai_answer(question)
         try:
-            bot.edit_message_text(ans, chat_id, thinking_msg.message_id)
+            bot.edit_message_text(ans, chat_id, thinking_msg.message_id, parse_mode="Markdown")
         except:
-            bot.reply_to(message, ans)
+            bot.reply_to(message, ans, parse_mode="Markdown")
         return
 
     # 6. تحميل الصوت فوراً (سمعني)
