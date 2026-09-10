@@ -113,7 +113,6 @@ def init_db():
     cursor.execute("INSERT OR IGNORE INTO store VALUES ('علبة متة', 50)")
     cursor.execute("INSERT OR IGNORE INTO store VALUES ('كيلو سكر', 100)")
 
-    # إضافة قصص جريمة افتراضية إذا كانت الطاولة فارغة
     cursor.execute("SELECT COUNT(*) FROM crime_stories")
     if cursor.fetchone()[0] == 0:
         cursor.execute("""
@@ -204,7 +203,6 @@ def clean_urls(text):
     return re.sub(r'https?://\S+|www\.\S+|t\.me/\S+', '', text).strip()
 
 def send_large_text(chat_id, header, items_list):
-    """إرسال السجلات الضخمة عبر تقسيمها لرسائل متعددة لتتحمل آلاف البيانات"""
     if not items_list:
         bot.send_message(chat_id, f"{header}\n\nلا توجد بيانات مخزنة حالياً.")
         return
@@ -219,14 +217,19 @@ def send_large_text(chat_id, header, items_list):
     if current_msg:
         bot.send_message(chat_id, current_msg, parse_mode="Markdown")
 
-# ==================== محرك الذكاء الاصطناعي المطور ====================
+# ==================== محرك الذكاء الاصطناعي الذكي ====================
 def fetch_ai_answer(question):
-    # 1. Pollinations AI
+    # المحاولة الأولى: Pollinations POST API
     try:
-        sys_prompt = "أنت مساعد ذكي ومرح، أجب باللغة العربية بأسلوب دقيق وواضح وبدون وضع أي روابط خارجية."
-        url = f"https://text.pollinations.ai/{requests.utils.quote(question)}?system={requests.utils.quote(sys_prompt)}"
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-        res = requests.get(url, headers=headers, timeout=12)
+        url = "https://text.pollinations.ai/"
+        payload = {
+            "messages": [
+                {"role": "system", "content": "أنت مساعد ذكي ومرح واسمك فرفوش. أجب على كافة الأسئلة باللغة العربية بشكل منطقي، واقعي، وواضح بدون وضع روابط."},
+                {"role": "user", "content": question}
+            ],
+            "model": "openai"
+        }
+        res = requests.post(url, json=payload, timeout=12)
         if res.status_code == 200 and res.text.strip():
             ans = clean_urls(res.text.strip())
             if ans and "timed out" not in ans.lower() and "error" not in ans.lower():
@@ -234,37 +237,52 @@ def fetch_ai_answer(question):
     except Exception:
         pass
 
-    # 2. DuckDuckGo Instant Answer
+    # المحاولة الثانية: Pollinations GET Direct
     try:
-        ddg_res = requests.get(f"https://api.duckduckgo.com/?q={requests.utils.quote(question)}&format=json&no_html=1", timeout=6).json()
-        ans = ddg_res.get("AbstractText", "")
-        if ans:
-            return clean_urls(ans)
+        sys_prompt = "أنت ذكاء اصطناعي تجيب عن كل الأسئلة باللغة العربية بأسلوب منطقي وواقعي وبدون روابط."
+        url = f"https://text.pollinations.ai/{requests.utils.quote(question)}?system={requests.utils.quote(sys_prompt)}"
+        res = requests.get(url, timeout=10)
+        if res.status_code == 200 and res.text.strip():
+            ans = clean_urls(res.text.strip())
+            if ans and "timed out" not in ans.lower():
+                return ans
     except Exception:
         pass
 
-    return "لون السماء أسود في الليل، ولكن بنور الشمس تظهر زرقاء نهاراً! يسعدني إجابتك على أي سؤال آخر."
+    # المحاولة الثالثة: Popcat AI Fallback
+    try:
+        res = requests.get(f"https://api.popcat.xyz/chatbot?msg={requests.utils.quote(question)}", timeout=6)
+        if res.status_code == 200:
+            data = res.json()
+            if "response" in data and data["response"]:
+                return clean_urls(data["response"])
+    except Exception:
+        pass
 
-# ==================== خدمة تحميل يوتيوب المحدثة ====================
+    return "أنا بخير والحمد لله! جاهز ومستعد للإجابة على جميع أسئلتك بكل سرور."
+
+# ==================== خدمة تحميل الأغاني ====================
 def download_and_send_audio(chat_id, query, message_id):
     status_msg = bot.send_message(chat_id, f"🔍 جاري البحث وتحميل الأغنية: **{query}**...", parse_mode="Markdown")
     if not os.path.exists('downloads'):
         os.makedirs('downloads')
 
     file_prefix = f"downloads/{int(time.time())}_{random.randint(1000,9999)}"
-    filename = f"{file_prefix}.m4a"
+    output_template = f"{file_prefix}.%(ext)s"
 
     ydl_opts = {
         'format': 'bestaudio/best',
         'default_search': 'ytsearch1:',
-        'outtmpl': filename,
+        'outtmpl': output_template,
         'noplaylist': True,
         'quiet': True,
         'no_warnings': True,
         'nocheckcertificate': True,
         'geo_bypass': True,
+        'cachedir': False,
         'headers': {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            'Accept-Language': 'ar,en-US;q=0.7,en;q=0.3',
         }
     }
 
@@ -276,12 +294,19 @@ def download_and_send_audio(chat_id, query, message_id):
                 title = video.get('title', query)
                 uploader = video.get('uploader', 'فرفوش')
 
-                if os.path.exists(filename):
-                    with open(filename, 'rb') as audio:
+                downloaded_file = None
+                for ext in ['m4a', 'mp3', 'webm', 'opus', 'mp4']:
+                    possible_path = f"{file_prefix}.{ext}"
+                    if os.path.exists(possible_path):
+                        downloaded_file = possible_path
+                        break
+
+                if downloaded_file and os.path.exists(downloaded_file):
+                    with open(downloaded_file, 'rb') as audio:
                         bot.send_audio(chat_id, audio, title=title, performer=uploader, reply_to_message_id=message_id)
                     bot.delete_message(chat_id, status_msg.message_id)
                     try:
-                        os.remove(filename)
+                        os.remove(downloaded_file)
                     except:
                         pass
                     return
@@ -290,11 +315,13 @@ def download_and_send_audio(chat_id, query, message_id):
     except Exception as e:
         print(f"YouTube Download Error: {e}")
         bot.edit_message_text("❌ حدث خطأ أثناء التحميل، يرجى المحاولة بعد قليل.", chat_id, status_msg.message_id)
-        if os.path.exists(filename):
-            try:
-                os.remove(filename)
-            except:
-                pass
+        for ext in ['m4a', 'mp3', 'webm', 'opus', 'mp4']:
+            p = f"{file_prefix}.{ext}"
+            if os.path.exists(p):
+                try:
+                    os.remove(p)
+                except:
+                    pass
 
 # ==================== الترحيب عند إضافة البوت لمجموعة ====================
 @bot.message_handler(content_types=['new_chat_members'])
@@ -325,8 +352,8 @@ def send_welcome_message(message):
         "✨ **المميزات المفعلة:**\n"
         "🛡️ **حماية المجموعة:** منع الروابط والمعرفات والتوجيه للأعضاء.\n"
         "🎮 **ألعاب متطورة:** XO، رياضيات، خمن الرقم، القاتل 🔪، وعجلة الحظ 🎡.\n"
-        "💸 **اقتصاد كامل:** قروض، سجن، سرقة 5%، واستثمار مخاطرة كل 15 دقيقة.\n"
-        "🤖 **ذكاء اصطناعي:** اكتب `بدي اسالك [سؤالك]` للإجابة بعد التفكر.\n"
+        "💸 **اقتصاد كامل:** قروض، سجن، سرقة (كل 15 دقيقة)، واستثمار مخاطرة كل 15 دقيقة.\n"
+        "🤖 **ذكاء اصطناعي:** اكتب `بدي اسالك [سؤالك]` للإجابة الدقيقة.\n"
         "🎵 **تحميل أغاني:** اكتب `سمعني [اسم الأغنية]` لتنزل فوراً صوتية."
     )
 
@@ -362,7 +389,6 @@ def main_router(message):
 
         sender_is_admin = is_chat_admin(chat_id, user_id)
 
-        # أوامر التحكم والإشراف بالرد (للأدمنية فقط)
         if message.reply_to_message and sender_is_admin:
             target_id = message.reply_to_message.from_user.id
             if text == "اكتمو":
@@ -395,9 +421,7 @@ def main_router(message):
                     bot.reply_to(message, f"❌ متعذر الطرد: {e}")
                 return
 
-        # حماية المجموعة من التوجيه والروابط والمعرفات (تطبق على الأعضاء فقط)
         if is_bot_admin(chat_id) and not sender_is_admin:
-            # حذف الرسائل المحولة
             if message.forward_date or message.forward_from or message.forward_from_chat:
                 try:
                     bot.delete_message(chat_id, message.message_id)
@@ -406,7 +430,6 @@ def main_router(message):
                     pass
                 return
 
-            # حذف المعرفات
             has_username = bool(re.search(r'@[a-zA-Z0-9_]+', text))
             if has_username:
                 try:
@@ -416,7 +439,6 @@ def main_router(message):
                     pass
                 return
 
-            # حذف الروابط
             has_link = bool(re.search(r'(https?://\S+|t\.me/\S+|\b\w+\.(com|net|org|site|online)\b)', text))
             if has_link:
                 try:
@@ -517,7 +539,7 @@ def process_bot_commands(message):
     if text.startswith("بدي اسالك"):
         question = text.replace("بدي اسالك", "").strip()
         if not question:
-            bot.reply_to(message, "تفضل اكتب سؤالك بعد الأمر مباشرة.\nمثال: `بدي اسالك ماهو لون السماء`", parse_mode="Markdown")
+            bot.reply_to(message, "تفضل اكتب سؤالك بعد الأمر مباشرة.\nمثال: `بدي اسالك كيف الجو اليوم`", parse_mode="Markdown")
             return
         
         thinking_msg = bot.reply_to(message, "جاري التفكير... 🧠")
@@ -584,7 +606,7 @@ def process_bot_commands(message):
         conn.close()
         return
 
-    # 9. السرقة
+    # 9. السرقة (تقييد 15 دقيقة)
     if text in ["سرقة", "سرقه"]:
         if not message.reply_to_message:
             bot.reply_to(message, "⚠️ يجب أن تقوم بالرد (Reply) على رسالة العضو الذي تريد سرقته!")
@@ -604,8 +626,10 @@ def process_bot_commands(message):
         c.execute("SELECT last_steal FROM steal_cooldowns WHERE user_id = ?", (user_id,))
         row = c.fetchone()
 
-        if row and (current_time - row[0]) < 600:
-            bot.reply_to(message, "ياويلك من الله لسا هلق سرقت! انتظر شوية لتهدأ الأوضاع.")
+        # 15 دقيقة = 900 ثانية
+        if row and (current_time - row[0]) < 900:
+            remaining_mins = int((900 - (current_time - row[0])) / 60) + 1
+            bot.reply_to(message, f"⏳ السرقة مقيدة! يمكنك السرقة مرة واحدة كل 15 دقيقة.\nيرجى الانتظار: `{remaining_mins}` دقيقة.", parse_mode="Markdown")
             conn.close()
             return
 
@@ -971,7 +995,6 @@ def handle_admin_actions(call):
         show_admin_panel(chat_id)
         return
 
-    # سجلات البيانات الضخمة
     if call.data == "admin_log_store":
         conn = sqlite3.connect("bot_data.db")
         c = conn.cursor()
@@ -1017,7 +1040,6 @@ def handle_admin_actions(call):
         send_large_text(chat_id, "🎯 **سجل الإجابات الصحيحة للجرائم:**", items)
         return
 
-    # إجراءات إضافة المحتوى
     if call.data == "admin_add_store_item":
         admin_states[user_id] = "wait_store_item_name"
         bot.send_message(chat_id, "أرسل اسم الصنف الجديد المراد إضافته للمتجر:")
@@ -1102,7 +1124,6 @@ def handle_admin_inputs(message):
     state = admin_states.get(user_id)
     chat_id = message.chat.id
 
-    # 1. إضافة صنف جديد للمتجر
     if state == "wait_store_item_name":
         admin_states[f"{user_id}_temp_store_name"] = message.text.strip()
         admin_states[user_id] = "wait_store_item_price"
@@ -1123,7 +1144,6 @@ def handle_admin_inputs(message):
             bot.send_message(chat_id, "❌ يرجى إدخال رقم صحيح للسعر.")
         return
 
-    # 2. إضافة قصة جريمة جديدة
     if state == "wait_crime_story":
         admin_states[f"{user_id}_temp_crime_story"] = message.text.strip()
         admin_states[user_id] = "wait_crime_suspects"
@@ -1149,7 +1169,6 @@ def handle_admin_inputs(message):
         bot.send_message(chat_id, f"✅ تمت إضافة قصة الجريمة وتحديد القاتل (`{killer}`) بنجاح!", parse_mode="Markdown")
         return
 
-    # 3. توجيه رسائل للمجموعات
     if state and state.startswith("wait_send_msg_"):
         target_chat_id = int(state.replace("wait_send_msg_", ""))
         try:
@@ -1165,7 +1184,6 @@ def handle_admin_inputs(message):
         del admin_states[user_id]
         return
 
-    # 4. إضافة ردود
     if state == "wait_rep_key":
         admin_states[f'{user_id}_temp_key'] = message.text.strip()
         admin_states[user_id] = "wait_rep_val"
@@ -1195,7 +1213,6 @@ def handle_admin_inputs(message):
         bot.send_message(chat_id, f"✅ تم حفظ الردود للكلمة `{k}` بنجاح!", parse_mode="Markdown")
         return
 
-    # 5. إضافة أسئلة وحزازير
     elif state == "wait_multi_q":
         lines = [line.strip() for line in message.text.split('\n') if line.strip()]
         conn = sqlite3.connect("bot_data.db")
