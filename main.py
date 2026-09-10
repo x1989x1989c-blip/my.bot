@@ -973,6 +973,10 @@ def start_crime_game(chat_id):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('game_'))
 def handle_games_callbacks(call):
+    try:
+        bot.answer_callback_query(call.id)
+    except:
+        pass
     chat_id = call.message.chat.id
     action = call.data.replace('game_', '')
     if action == "xo":
@@ -1019,6 +1023,11 @@ def handle_xo_callbacks(call):
             bot.answer_callback_query(call.id, "انتظر انضمام لاعب آخر!", show_alert=True)
             return
         
+        try:
+            bot.answer_callback_query(call.id)
+        except:
+            pass
+
         p1_name = bot.get_chat_member(chat_id, host_id).user.first_name
         p2_name = call.from_user.first_name
 
@@ -1048,6 +1057,11 @@ def handle_xo_callbacks(call):
         if game['board'][idx] != " ":
             bot.answer_callback_query(call.id, "المربع محجوز!", show_alert=True)
             return
+
+        try:
+            bot.answer_callback_query(call.id)
+        except:
+            pass
 
         game['board'][idx] = game['symbols'][user_id]
         
@@ -1103,11 +1117,36 @@ def handle_admin_actions(call):
         bot.answer_callback_query(call.id, "اللوحة مخصصة للآدمن فقط!", show_alert=True)
         return
     
+    try:
+        bot.answer_callback_query(call.id)
+    except:
+        pass
+
     chat_id = call.message.chat.id
     user_id = call.from_user.id
 
     if call.data == "open_admin_panel":
         show_admin_panel(chat_id)
+        return
+
+    # --- معالجة زر إضافة أدمن ---
+    if call.data == "admin_add_admin":
+        admin_states[user_id] = "wait_add_admin_id"
+        bot.send_message(chat_id, "أرسل الآيدي (ID) الخاص بالمستخدم المراد رفعه أدمن لمنحه كافة الصلاحيات:")
+        return
+
+    # --- معالجة زر عرض الأدمنية ---
+    if call.data == "admin_list_admins":
+        conn = sqlite3.connect("bot_data.db")
+        c = conn.cursor()
+        c.execute("SELECT user_id FROM admins")
+        rows = c.fetchall()
+        conn.close()
+        admins_list = [f"المالك الأساسي: `{ADMIN_ID}`"]
+        for r in rows:
+            if r[0] != ADMIN_ID:
+                admins_list.append(f"أدمن: `{r[0]}`")
+        send_large_text(chat_id, "👥 **سجل وسائطه الأدمنية المخولين:**", admins_list)
         return
 
     if call.data == "admin_log_store":
@@ -1238,6 +1277,28 @@ def handle_admin_inputs(message):
     user_id = message.from_user.id
     state = admin_states.get(user_id)
     chat_id = message.chat.id
+
+    # --- حفظ آيدي الأدمن الجديد وإرسال الرسالة المطلوبة له ---
+    if state == "wait_add_admin_id":
+        if message.text.strip().isdigit():
+            new_admin_id = int(message.text.strip())
+            conn = sqlite3.connect("bot_data.db")
+            conn.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (new_admin_id,))
+            conn.commit()
+            conn.close()
+
+            notification_status = ""
+            try:
+                bot.send_message(new_admin_id, "تفضل يامعلم صرت صانعك هلق")
+                notification_status = "\n📩 تم إرسال الرسالة إلى الأدمن الجديد بنجاح!"
+            except Exception as e:
+                notification_status = f"\n⚠️ تم رفع الأدمن، لكن لم نتمكن من إرسال الإشعار الخاص به (قد يكون لم يبدأ محادثة سابقة مع البوت)."
+
+            del admin_states[user_id]
+            bot.send_message(chat_id, f"✅ تم إضافة المستخدم `{new_admin_id}` كأدمن بجميع الصلاحيات بنجاح!{notification_status}", parse_mode="Markdown")
+        else:
+            bot.send_message(chat_id, "❌ يرجى إدخال آيدي (ID) صحيح يتكون من أرقام فقط.")
+        return
 
     if state == "wait_store_item_name":
         admin_states[f"{user_id}_temp_store_name"] = message.text.strip()
