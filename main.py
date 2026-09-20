@@ -88,6 +88,18 @@ def init_db():
         )
     """)
     cursor.execute("""
+        CREATE TABLE IF NOT EXISTS wheel_cooldowns (
+            user_id INTEGER PRIMARY KEY,
+            last_wheel INTEGER
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS bet_cooldowns (
+            user_id INTEGER PRIMARY KEY,
+            last_bet INTEGER
+        )
+    """)
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS loans (
             user_id INTEGER PRIMARY KEY,
             amount INTEGER DEFAULT 0,
@@ -132,7 +144,7 @@ def init_db():
     cursor.execute("INSERT OR IGNORE INTO store VALUES ('علبة متة', 50)")
     cursor.execute("INSERT OR IGNORE INTO store VALUES ('كيلو سكر', 100)")
 
-    # 1. إدخال الأسئلة المبدئية
+    # 1. إدخال الأسئلة المبدئية العامة (محفوظة بالكامل)
     cursor.execute("SELECT COUNT(*) FROM questions")
     if cursor.fetchone()[0] == 0:
         questions_list = [
@@ -185,79 +197,66 @@ def init_db():
         for q in questions_list:
             cursor.execute("INSERT INTO questions (question) VALUES (?)", (q,))
 
-    # 2. إدخال الحزازير
+    # 2. إدخال 50 حزورة منطقية ومتقنة (محدثة بالكامل وبإجابات منطقية)
     cursor.execute("SELECT COUNT(*) FROM riddles")
-    if cursor.fetchone()[0] < 50:
+    if cursor.fetchone()[0] != 50:
+        cursor.execute("DELETE FROM riddles")
         riddles_list = [
-            ("عبد غرقان بشغل البرمجة الله يقويه 😂😂بدنا البوت الجديد بقا", "إله أسنان وما بيعض، شو هو؟"),
-            ("إله أسنان وما بيعض، شو هو؟", "المشط"),
-            ("يمشي بلا رجلين ويبكي بلا عينين، شو هو؟", "الغيوم"),
-            ("شو الشي اللي إذا نطقته كسرته؟", "الصمت"),
-            ("شيء إله عين وما بيشوف، شو هو؟", "الابرة"),
-            ("شو الشي اللي بيكتب وما بيقرأ؟", "القلم"),
-            ("شو الشي اللي إذا شرب مات، وإذا أكل عاش؟", "النار"),
-            ("شو الشي اللي له أوراق وليس شجرة، وله جلد وليس حيوان؟", "الكتاب"),
-            ("شو الشي اللي ما إله وزن، بس إذا حطيته ببرميل بيخليه أخف؟", "الثقب"),
-            ("شو الشي اللي إذا كسرته ما بتقدر تصلحه، حتى لو ما لمسته؟", "الوعد"),
-            ("شو الشي اللي يمشي طول اليوم، وما بيتعب أبداً؟", "الساعة"),
-            ("بماذا تشتهر مدينة حماة من ناحية الحلويات؟", "حلاوة الجبن"),
-            ("شو الشي اللي إذا ركض ما بيتحرك من مكانه؟", "النهر"),
-            ("شيء موجود في السماء، وإذا أضفت له حرف صار في الأرض، شو هو؟", "نجم"),
-            ("شو الشي اللي له عين واحدة وما بيشوف؟", "الابرة"),
-            ("شو الشي اللي ماشي بلا رجلين، وبيدخل كل بيت بلا استئذان؟", "الهواء"),
-            ("شو الشي اللي إذا وقع على الأرض ما بينكسر، وإذا وقع بالماء بينكسر؟", "الورق"),
             ("ما هو الشيء الذي كلما أخذت منه كبر؟", "الحفرة"),
             ("ما هو الشيء الذي يتكلم جميع اللغات؟", "الصدى"),
-            ("ما هو الشيء الذي يحمل طعامه فوق رأسه؟", "القلنسوة"),
-            ("شيء يقرصك ولا تراه، ما هو؟", "الجوع"),
-            ("شيء له أربعه أرجل ولا يستطيع المشي؟", "الكرسي"),
+            ("ما هو الشيء الذي يسير بلا رجلين ولا يدخل إلا بالإذن؟", "الصوت"),
+            ("شيء إله عين وما بيشوف، شو هو؟", "الإبرة"),
+            ("ما هو الشيء الذي يكتب ولا يقرأ؟", "القلم"),
+            ("ما هو الشيء الذي إذا شرب مات وإذا أكل عاش؟", "النار"),
+            ("له أوراق وليس شجرة، وله جلد وليس حيوان، فما هو؟", "الكتاب"),
+            ("ما هو الشيء الذي يمشي طول اليوم ولا يتعب أبداً؟", "الساعة"),
+            ("ما هو الشيء الذي يحملك وتحمله في نفس الوقت؟", "الحذاء"),
             ("ما هو البيت الذي ليس فيه أبواب ولا نوافذ؟", "بيت الشعر"),
             ("شيء يخترق الزجاج ولا يكاسره، ما هو؟", "الضوء"),
-            ("ما هو الشيء الذي يمشي ويقف وليس له أرجل؟", "الساعة"),
-            ("شيء ينبض بلا قلب، ما هو؟", "الساعة"),
-            ("ما هو الشي الذي كلما زاد نقص؟", "العمر"),
-            ("ما هو الشيء الذي يربيه الأب وتذبحه الأم وتبكي عليه الأخت ويقتله الأخ؟", "البصل"),
-            ("ما هو الشيء الذي لا يمشي إلا بالضرب؟", "المسمار"),
-            ("له رأس ولا عين له، وهي لها عين ولا رأس لها، ما هما؟", "الدبوس والإبرة"),
-            ("ما هو الشيء الذي يأكل ولا يشبع؟", "النار"),
-            ("ما هو الشيء الذي إذا غليته تجمد؟", "البيض"),
-            ("من هو الخال الوحيد لأولاد عمتك؟", "والدك"),
-            ("ما هو الشيء الذي تراه ولا يستطيع رؤيتك؟", "الظل"),
-            ("ما هو الشيء الذي يوجد في وسط باريس؟", "حرف ر"),
-            ("ما هو الشيء الذي يكون أخضر في الأرض، وأسود في السوق، وأحمر في البيت؟", "الشاي"),
-            ("أين يقع البحر الذي لا يوجد فيه ماء؟", "على الخريطة"),
-            ("ما هو الشيء الذي إذا لمسته صاح؟", "الجرس"),
-            ("عائلة فيها 6 أخوات وللكل أخ واحد، كم عدد العائلة؟", "7"),
-            ("شيء يسير بلا رجلين ولا يدخل إلا بالإذن، ما هو؟", "الصوت"),
-            ("ماهو الشيء الذي يرى كل شيء وليس له عيون؟", "المرأة"),
-            ("ما هو الشيء الذي يدور حول الحديقة دون أن يتحرك؟", "السور"),
-            ("ما هو الشيء الذي يحملك وتحمله في نفس الوقت؟", "الحذاء"),
             ("ما هو الشيء الذي ينزل ولا يصعد أبداً؟", "المطر"),
-            ("إذا أطعمته كبر وإذا سقيته مات، ما هو؟", "النار"),
-            ("شيء يخرج من الماء ويموت بالماء؟", "الملح"),
-            ("ماهو الشيء الذي يمتلك مفاتيح كثيرة ولكنه لا يستطيع فتح أي باب؟", "البيانو"),
+            ("ما هو الشيء الذي يوجد في وسط باريس؟", "حرف ر"),
+            ("ما هو الشيء الذي يكون أخضر في الأرض وأسود في السوق وأحمر في البيت؟", "الشاي"),
+            ("أين يقع البحر الذي لا يوجد فيه ماء؟", "على الخريطة"),
             ("ما هو الشيء الذي لا يمكنك استخدامه إلا إذا كسرته؟", "البيض"),
             ("ما هو الشيء الذي يتبعك أينما ذهبت في النهار ويختفي بالليل؟", "الظل"),
-            ("ماهي العروس التي بلا عريس؟", "الدمية"),
-            ("ما هو الشي الذي ترميه كلما احتجت إليه؟", "شبكة الصيد"),
-            ("ماهو الشيء الذي يملك رقبة ولكن ليس لديه رأس؟", "الزجاجة"),
-            ("ما هو الشيء الذي يوجد بين السماء والأرض؟", "حرف الواو"),
-            ("شيء أوله عين وآخره سن، ما هو؟", "العنب"),
-            ("شيء تراه في الظلام ولا تراه في النور، ما هو؟", "الظلام"),
-            ("ماهو الشيء الذي تسمعه ولا تراه وإذا رأيته لا تسمعه؟", "الطلقة"),
-            ("ما هو الشيء الذي لا يبتل حتى لو نزل في الماء؟", "الضوء"),
-            ("شيء يوجد في الشتاء 5 وفي الصيف 3، ما هو؟", "النقاط"),
+            ("ما هو الشيء الذي يملك رقبة ولكن ليس لديه رأس؟", "الزجاجة"),
+            ("ما هو الشيء الذي كلما زاد نقص؟", "العمر"),
+            ("ما هو الشيء الذي يربيه الأب وتذبحه الأم وتبكي عليه الأخت ويقتله الأخ؟", "البصل"),
+            ("ما هو الشيء الذي لا يمشي إلا بالضرب؟", "المسمار"),
             ("ما هو القفص الذي لا يحبس فيه طير ولا حيوان؟", "القفص الصدري"),
             ("ما هو الشيء الذي يمر عبر المدن والقبائل ولا يتحرك؟", "الطريق"),
-            ("ما هو الشيء الذي يستطيع أن يملأ الغرفة دون أن يشغل مساحة؟", "النوور"),
-            ("ماهو الشيء الذي إذا حذفت أوله صار اسم رجل وإذا حذفت وسطه صار اسم حيوان؟", "بطة")
+            ("ما هو الشيء الذي يستطيع أن يملأ الغرفة دون أن شغل مساحة؟", "النور"),
+            ("ما هو الشيء الذي يقرصك ولا تراه؟", "الجوع"),
+            ("ما هو الشيء الذي له أربعة أرجل ولا يستطيع المشي؟", "الكرسي"),
+            ("شيء ينبض بلا قلب، ما هو؟", "الساعة"),
+            ("ما هو الشيء الذي إذا غليته تجمد؟", "البيض"),
+            ("من هو الخال الوحيد لأولاد عمتك؟", "والدك"),
+            ("ما هو الشيء الذي إذا لمسته صاح؟", "الجرس"),
+            ("إذا أطعمته كبر وإذا سقيته مات، ما هو؟", "النار"),
+            ("شيء يخرج من الماء ويموت بالماء؟", "الملح"),
+            ("ما هو الشيء الذي يمتلك مفاتيح كثيرة ولكنه لا يستطيع فتح أي باب؟", "البيانو"),
+            ("شيء أوله عين وآخره سن، ما هو؟", "العنب"),
+            ("ما هو الشيء الذي لا يبتل حتى لو نزل في الماء؟", "الضوء"),
+            ("ما هو الشيء الذي له أسنان ولا يعض؟", "المشط"),
+            ("يمشي بلا رجلين ويبكي بلا عينين، ما هو؟", "السحاب"),
+            ("ما هو الشيء الذي إذا نطقته كسرته؟", "الصمت"),
+            ("ما هو الشيء الذي تحمله ويحملك؟", "الحذاء"),
+            ("ما هو الشيء الذي يكون في الصيف داكناً وفي الشتاء أبيض؟", "الجبل"),
+            ("كائن يرى كل شيء وليس له عيون، ما هو؟", "المرأة"),
+            ("ما هو الشيء الذي يدور حول الحديقة دون أن يتحرك؟", "السور"),
+            ("ما هي العروس التي بلا عريس؟", "الدمية"),
+            ("ما هو الشيء الذي ترميه كلما احتجت إليه؟", "شبكة الصيد"),
+            ("ما هو الشيء الذي يوجد بين السماء والأرض؟", "حرف الواو"),
+            ("ما هو الشيء الذي تراه في الظلام ولا تراه في النور؟", "الظلام"),
+            ("ما هو الشيء الذي تسمعه ولا تراه وإذا رأيته لا تسمعه؟", "الطلقة"),
+            ("ما هو الشجر الذي ليس له ظل ولا ثمار؟", "شجرة العائلة"),
+            ("ابن أمك وابن أبيك، وليس بأخيك ولا بأختك، فمن يكون؟", "أنت"),
+            ("ما هو الشيء الذي يقف وينزل بلا حركة؟", "درجة الحرارة")
         ]
         for rq, ra in riddles_list:
-            cursor.execute("SELECT 1 FROM riddles WHERE question = ?", (rq,))
-            if not cursor.fetchone():
-                cursor.execute("INSERT INTO riddles (question, answer) VALUES (?, ?)", (rq, ra))
+            cursor.execute("INSERT INTO riddles (question, answer) VALUES (?, ?)", (rq, ra))
 
-    # 3. إدخال الردود التلقائية الكاملة
+    # 3. إدخال الردود التلقائية الكاملة + الردود الترفيهية الجديدة
     extra_replies = [
         ("صباح الخير", "صباح النور… نورك مغطي عالصبح كله 😏"),
         ("مرحبا", "مرحبتين، وحدة إلك ووحدة لعيونك 😏❤️"),
@@ -305,14 +304,31 @@ def init_db():
         ("هات", "عم تصحلي امي باي 🌝"),
         ("هات", "صدقت 😳"),
         ("هات", "فرفوش ماهون 🫣"),
-        ("فرفوشتي", "نعم حبيبتي")
+        ("فرفوشتي", "نعم حبيبتي"),
+        # الردود الترفيهية الجديدة المضافة
+        ("فرفوش", "عيون فرفوش الروق يا حلو! 😍"),
+        ("فرفوش", "فرفوش بالخدمة والروق والسعادة! ✨"),
+        ("فرفوش", "لبيه يا عيون فرفوش 😘"),
+        ("فرفوش", "فرفوش جاهز للضحك والتسلاية! 🕺"),
+        ("فرفوشي", "يا عيون فرفوشي أنت! ❤️"),
+        ("فرفوشي", "روح قلب فرفوشي من جوة 🫣"),
+        ("فرفوشي", "فرفوشي بحبك أكتر مما تتخيل! 💕"),
+        ("فرفوشي", "يا دلي أنا.. فرفوشي على خطك 🌸"),
+        ("بحبك", "وأنا بحبك وبموت فيك يا عسل! ❤️"),
+        ("بحبك", "الحب أفعال مش بس حكي.. هلي بالليرات بصدقك 😂❤️"),
+        ("بحبك", "يا خجل البوتات! وأنا بحبك من أخر شريحة بقلبي 🙈"),
+        ("بحبك", "قلبي الصغير لا يتحمل هذا الحب الكثيف! 🔥"),
+        ("بكرهك", "ليه بس كدة؟ دا أنا فرفوش الطيب المسكين 🥺"),
+        ("بكرهك", "من حبنا حبسناه.. عادي بكرة بتحبني 😂"),
+        ("بكرهك", "القلوب شواهد.. بس أنا لساني بحبك يا غالي! 💔"),
+        ("بكرهك", "لا تكرهني عشان الجروب يضل فرفوش وزاهي 😉")
     ]
     for kw, resp in extra_replies:
         cursor.execute("SELECT 1 FROM custom_replies WHERE keyword = ? AND response = ?", (kw, resp))
         if not cursor.fetchone():
             cursor.execute("INSERT INTO custom_replies (keyword, response, media_type) VALUES (?, ?, 'text')", (kw, resp))
 
-    # 4. إدخال قصص الجرائم
+    # 4. إدخال قصص الجرائم (محفوظة بالكامل)
     cursor.execute("SELECT COUNT(*) FROM crime_stories")
     if cursor.fetchone()[0] < 50:
         crimes_list = [
@@ -428,7 +444,7 @@ def is_bot_admin(chat_id):
 
 def is_gemini_enabled(chat_type, chat_id, user_id):
     if chat_type == 'private':
-        return is_admin(user_id)
+        return True
     conn = sqlite3.connect("bot_data.db")
     c = conn.cursor()
     c.execute("SELECT 1 FROM gemini_groups WHERE chat_id = ?", (chat_id,))
@@ -668,7 +684,7 @@ def send_welcome_message(message):
         "🎮 **ألعاب متطورة:** XO، رياضيات، خمن الرقم، خمن المسلسل 📺، القاتل 🔪، وعجلة الحظ 🎡.\n"
         "💸 **اقتصاد كامل:** إهداء أصناف، بيع أصناف، مراهنات، قروض، سجن، سرقة، واستثمار 90%.\n"
         "🤖 **ذكاء اصطناعي (جيمني الاصلي):** اكتب `عندي سؤال` أو `بدي ساوي صورة [وصف]`.\n"
-        "🎵 **تحميل يوتيوب تلقائي:** أرسل أي رابط يوتيوب وسأحمله لك صوتياً فوراً بدون تعذر."
+        "🎵 **تحميل يوتيوب تلقائي:** أرسل كلمة `يوتيوب` أو `سمعني` مع اسم الأغنية وسأحملها لك صوتياً فوراً وبسرعة."
     )
 
     markup = types.InlineKeyboardMarkup(row_width=1)
@@ -789,7 +805,7 @@ def main_router(message):
         bot.reply_to(message, "انت مسجون ياحباب دفاع دينك قبل يافقير")
         return
 
-    # 3. حالات تفاعلية
+    # 3. حالات تفاعلية لجيمني
     if user_id in user_gemini_states:
         g_state = user_gemini_states.pop(user_id)
         if g_state == "wait_gemini_question":
@@ -843,7 +859,7 @@ def process_bot_commands(message):
                 bot.reply_to(message, "انت عضو بس عضو من قلبي ♥️")
         return
 
-    # الردود المخصصة
+    # الردود المخصصة التلقائية
     conn = sqlite3.connect("bot_data.db")
     c = conn.cursor()
     c.execute("SELECT response, media_type, file_id FROM custom_replies WHERE keyword = ?", (text,))
@@ -903,7 +919,7 @@ def process_bot_commands(message):
             bot.reply_to(message, "اكتب وصف الصورة التي تريد إنشاءها:")
         return
 
-    # الألعاب
+    # الألعاب ومتحقق الأجوبة
     if chat_id in active_crime_games:
         game_data = active_crime_games[chat_id]
         if text.lower() == game_data['killer'].lower():
@@ -963,19 +979,44 @@ def process_bot_commands(message):
         download_and_send_audio(chat_id, query, message.message_id)
         return
 
+    # لعبة الرهان المحدثة (70% ربح - 30% خسارة - تقييد دقيقة برسالة ترفيهية)
     if text.startswith("راهن"):
+        current_time = int(time.time())
+        conn = sqlite3.connect("bot_data.db")
+        c = conn.cursor()
+        c.execute("SELECT last_bet FROM bet_cooldowns WHERE user_id = ?", (user_id,))
+        row = c.fetchone()
+
+        if row and (current_time - row[0]) < 60:
+            remaining_secs = 60 - (current_time - row[0])
+            funny_bet_msgs = [
+                f"🎲 روق على جيبتك شوي! المراهنة مقيدة مرة كل دقيقة، استنى `{remaining_secs}` ثانية ⏳",
+                f"🎲 القمار بيخرب الديار! استنى `{remaining_secs}` ثانية قبل ما تراهن تاني 😂",
+                f"🎲 يابني اهدى شوي على الرصيد! فاضل `{remaining_secs}` ثانية للرهان الجاي ⏱️"
+            ]
+            bot.reply_to(message, random.choice(funny_bet_msgs), parse_mode="Markdown")
+            conn.close()
+            return
+
         parts = text.split()
         if len(parts) >= 2 and parts[1].isdigit():
             bet_amount = int(parts[1])
             bal = get_balance(user_id)
             if bet_amount <= 0:
                 bot.reply_to(message, "⚠️ يجب إدخال مبلغ مراهنة أكبر من 0.")
+                conn.close()
                 return
             if bal < bet_amount:
                 bot.reply_to(message, f"❌ رصيدك لا يكفي للمراهنة! معك حالياً {bal} ليرة.")
+                conn.close()
                 return
             
-            is_won = random.choice([True, False])
+            c.execute("INSERT INTO bet_cooldowns VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET last_bet = ?", (user_id, current_time, current_time))
+            conn.commit()
+            conn.close()
+
+            # 70% ربح - 30% خسارة
+            is_won = random.choices([True, False], weights=[70, 30])[0]
             if is_won:
                 update_balance(user_id, bet_amount)
                 bot.reply_to(message, f"🎲 **مراهنة ناجحة!**\nضاعفت مبلغك وربحت **{bet_amount}** ليرة وهمية! 🎉", parse_mode="Markdown")
@@ -983,6 +1024,7 @@ def process_bot_commands(message):
                 update_balance(user_id, -bet_amount)
                 bot.reply_to(message, f"🎲 **مراهنة خاسرة!**\nللأسف خسرت المبلغ بالكامل (**{bet_amount}** ليرة)! 💔", parse_mode="Markdown")
         else:
+            conn.close()
             bot.reply_to(message, "💡 للمراهنة أرسل:\n`راهن [المبلغ]`\nمثال: `راهن 20`", parse_mode="Markdown")
         return
 
@@ -1138,7 +1180,7 @@ def process_bot_commands(message):
             fail_no_money_messages = [
                 f"😂 جيت تسرق {target_user.first_name} لقيت جيبته مخزوقة ومعهوش ولا فرنك!",
                 f"😭 {target_user.first_name} مفلس أصلًا وعم يشحذ بالجروب، ارحمه!",
-                f"❌ دخلت إيدك بجيبته طلعت فاضية... يا حوينت التعب!"
+                f"❌ دخلت إيدك بجيبته طلعتفاضية... يا حوينت التعب!"
             ]
             bot.reply_to(message, random.choice(fail_no_money_messages))
             conn.close()
@@ -1216,26 +1258,54 @@ def process_bot_commands(message):
             bot.reply_to(message, "💡 للاستثمار أرسل:\n`استثمار [المبلغ]`\nمثال: `استثمار 100`", parse_mode="Markdown")
         return
 
+    # لعبة العجلة المحدثة (70% ربح - 30% خسارة - ربح حتا 2000 - تقييد دقيقة برسالة ترفيهية)
     if text in ["عجلة", "العجلة", "لعبة العجلة"]:
+        current_time = int(time.time())
+        conn = sqlite3.connect("bot_data.db")
+        c = conn.cursor()
+        c.execute("SELECT last_wheel FROM wheel_cooldowns WHERE user_id = ?", (user_id,))
+        row = c.fetchone()
+
+        if row and (current_time - row[0]) < 60:
+            remaining_secs = 60 - (current_time - row[0])
+            funny_wheel_msgs = [
+                f"🎡 العجلة من الندامة! هلكتنا عجلة استنى `{remaining_secs}` ثانية يا حباب ⌛",
+                f"🎡 روق المانجا شوي! العجلة محتاجة استراحة، فاضل `{remaining_secs}` ثانية ⏱️",
+                f"🎡 يا زلمة أصابيعك ميعت العجلة! استنى `{remaining_secs}` ثانية وارجع أدرها 🌀"
+            ]
+            bot.reply_to(message, random.choice(funny_wheel_msgs), parse_mode="Markdown")
+            conn.close()
+            return
+
         bal = get_balance(user_id)
         if bal < 50:
             bot.reply_to(message, "❌ تكلفة تدوير العجلة هي 50 ليرة ورصيدك لا يكفي!")
+            conn.close()
             return
 
         update_balance(user_id, -50)
-        prizes = [0, 20, 50, 100, 200, 500, 1000]
-        weights = [35, 25, 15, 12, 8, 4, 1]
-        won = random.choices(prizes, weights=weights)[0]
+        c.execute("INSERT INTO wheel_cooldowns VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET last_wheel = ?", (user_id, current_time, current_time))
+        conn.commit()
+        conn.close()
 
-        if won > 0:
+        # 70% ربح و 30% خسارة
+        is_win = random.choices([True, False], weights=[70, 30])[0]
+        if is_win:
+            prizes = [50, 100, 200, 500, 1000, 2000]
+            weights = [35, 25, 20, 12, 6, 2]
+            won = random.choices(prizes, weights=weights)[0]
             update_balance(user_id, won)
             bot.reply_to(message, f"🎡 **درت عجلة الحظ!**\nتم خصم 50 ليرة... وربحت **{won}** ليرة وهمية! 🎉", parse_mode="Markdown")
         else:
-            bot.reply_to(message, "🎡 **درت عجلة الحظ!**\nتم خصم 50 ليرة... وخسرت 0 ليرة! حظاً أفضل المرة القادمة 💔", parse_mode="Markdown")
+            bot.reply_to(message, "🎡 **درت عجلة الحظ!**\nتم خصم 50 ليرة... وخسرت! حظاً أفضل في المرة القادمة 💔", parse_mode="Markdown")
         return
 
     if text in ["اكسني", "لعبة اكس اوه"]:
-        bot.send_message(chat_id, f"🎮 **لعبة XO جديدة!**\nالمنافس الأول: {message.from_user.first_name}\nاضغط للانضمام والمنافسة:", reply_markup=get_xo_keyboard(None, user_id, message.from_user.first_name))
+        bal = get_balance(user_id)
+        if bal < 50:
+            bot.reply_to(message, "❌ رسوم بدء لعبة XO هي 50 ليرة ورصيدك لا يكفي!")
+            return
+        bot.send_message(chat_id, f"🎮 **لعبة XO جديدة!**\nالمنافس الأول: {message.from_user.first_name}\n💡 رسوم الدخول: 50 ليرة | جائزة الفائز: 200 ليرة\nاضغط للانضمام والمنافسة:", reply_markup=get_xo_keyboard(None, user_id, message.from_user.first_name))
         return
 
     if text in ["رياضيات", "لعبة رياضيات"]:
@@ -1377,6 +1447,10 @@ def handle_games_callbacks(call):
     chat_id = call.message.chat.id
     action = call.data.replace('game_', '')
     if action == "xo":
+        bal = get_balance(call.from_user.id)
+        if bal < 50:
+            bot.send_message(chat_id, "❌ رسوم دخول XO هي 50 ليرة ورصيدك لا يكفي!")
+            return
         bot.send_message(chat_id, f"🎮 لعبة XO جديدة!\nأنشأ اللعبة: {call.from_user.first_name}", reply_markup=get_xo_keyboard(None, call.from_user.id, call.from_user.first_name))
     elif action == "riddle":
         start_riddle_game(chat_id)
@@ -1419,6 +1493,7 @@ def get_xo_keyboard(game_data=None, host_id=None, host_name=""):
         markup.add(*row_btns)
     return markup
 
+# التعديل الجديد لـ XO: خصم 50 من كل لاعب، الفائز 200، التعادل يعود 50 لكل لاعب
 @bot.callback_query_handler(func=lambda call: call.data.startswith('xo_'))
 def handle_xo_callbacks(call):
     chat_id = call.message.chat.id
@@ -1430,7 +1505,22 @@ def handle_xo_callbacks(call):
         if user_id == host_id:
             bot.answer_callback_query(call.id, "انتظر انضمام لاعب آخر!", show_alert=True)
             return
-        
+
+        bal_host = get_balance(host_id)
+        bal_user = get_balance(user_id)
+
+        if bal_host < 50:
+            bot.answer_callback_query(call.id, "المنافس لا يمتلك 50 ليرة لبدء اللعبة!", show_alert=True)
+            return
+
+        if bal_user < 50:
+            bot.answer_callback_query(call.id, "رصيدك غير كافي لبدء اللعبة! يلزمك 50 ليرة.", show_alert=True)
+            return
+
+        # خصم 50 من اللاعبين فور البدء
+        update_balance(host_id, -50)
+        update_balance(user_id, -50)
+
         try:
             bot.answer_callback_query(call.id)
         except:
@@ -1448,7 +1538,7 @@ def handle_xo_callbacks(call):
             'board': [" "] * 9,
             'symbols': {host_id: "❌", user_id: "⭕"}
         }
-        bot.edit_message_text(f"🎮 بدأت اللعبة بين:\n❌ {p1_name}\n⭕ {p2_name}\n\nالدور الحالي: {p1_name} (❌)", chat_id, msg_id, reply_markup=get_xo_keyboard(xo_games[msg_id]))
+        bot.edit_message_text(f"🎮 بدأت مباراة XO!\nتم خصم 50 ليرة من كل لاعب.\n❌ {p1_name}\n⭕ {p2_name}\n\nالدور الحالي: {p1_name} (❌)", chat_id, msg_id, reply_markup=get_xo_keyboard(xo_games[msg_id]))
         return
 
     if call.data.startswith("xo_move_"):
@@ -1481,11 +1571,15 @@ def handle_xo_callbacks(call):
                 break
 
         if winner:
-            bot.edit_message_text(f"🎉 الفائز باللعبة هو {call.from_user.first_name}! وتم إضافة **50 ليرة وهمية** لرصيده!", chat_id, msg_id, reply_markup=get_xo_keyboard(game))
-            update_balance(user_id, 50)
+            # الفائز يحصل على 200 ليرة وهمية
+            update_balance(winner, 200)
+            bot.edit_message_text(f"🎉 الفائز باللعبة هو {call.from_user.first_name}! وربح **200 ليرة وهمية**! 🏆", chat_id, msg_id, reply_markup=get_xo_keyboard(game), parse_mode="Markdown")
             del xo_games[msg_id]
         elif " " not in game['board']:
-            bot.edit_message_text("🤝 تعادل بين الطرفين!", chat_id, msg_id, reply_markup=get_xo_keyboard(game))
+            # التعادل يعود لكل شخص 50 ليرة
+            update_balance(game['player1'], 50)
+            update_balance(game['player2'], 50)
+            bot.edit_message_text("🤝 تعادل بين الطرفين! وتم إعادة **50 ليرة** لكل لاعب.", chat_id, msg_id, reply_markup=get_xo_keyboard(game), parse_mode="Markdown")
             del xo_games[msg_id]
         else:
             game['turn'] = game['player2'] if user_id == game['player1'] else game['player1']
@@ -1530,7 +1624,7 @@ def admin_command(message):
     if is_admin(message.from_user.id):
         show_admin_panel(message.chat.id)
 
-@bot.callback_query_handler(func=lambda call: call.data == "open_admin_panel" or call.data.startswith('admin_') or call.data.startswith('grp_') or call.data.startswith('gemini_'))
+@bot.callback_query_handler(func=lambda call: call.data == "open_admin_panel" or call.data.startswith('admin_') or call.data.startswith('grp_') or call.data.startswith('gemini_') or call.data.startswith('sendmsg_grp_'))
 def handle_admin_actions(call):
     if not is_admin(call.from_user.id):
         bot.answer_callback_query(call.id, "اللوحة مخصصة للآدمن فقط!", show_alert=True)
@@ -1546,6 +1640,30 @@ def handle_admin_actions(call):
 
     if call.data == "open_admin_panel":
         show_admin_panel(chat_id)
+        return
+
+    # رسالة خاصة لجروب عبر الأزرار
+    if call.data == "admin_send_grp_msg":
+        conn = sqlite3.connect("bot_data.db")
+        c = conn.cursor()
+        c.execute("SELECT chat_id, title FROM groups")
+        groups = c.fetchall()
+        conn.close()
+
+        if not groups:
+            bot.send_message(chat_id, "لا توجد مجموعات مسجلة حالياً.")
+            return
+
+        markup = types.InlineKeyboardMarkup(row_width=1)
+        for g_id, title in groups:
+            markup.add(types.InlineKeyboardButton(f"📢 {title}", callback_data=f"sendmsg_grp_{g_id}"))
+        bot.send_message(chat_id, "✉️ **اختر المجموعة المراد إرسال رسالة خاصة إليها:**", reply_markup=markup, parse_mode="Markdown")
+        return
+
+    if call.data.startswith("sendmsg_grp_"):
+        target_g_id = int(call.data.split("_")[2])
+        admin_states[user_id] = {"state": "wait_custom_grp_msg", "target_chat_id": target_g_id}
+        bot.send_message(chat_id, f"أرسل الآن المحتوى المراد إرساله (نص، صورة، فيديو، أو ملصق) إلى المجموعة `{target_g_id}`:", parse_mode="Markdown")
         return
 
     if call.data == "admin_gemini_groups":
@@ -1762,11 +1880,6 @@ def handle_admin_actions(call):
         bot.send_message(chat_id, "أرسل ID المجموعة المراد مغادرتها:")
         return
 
-    if call.data == "admin_send_grp_msg":
-        admin_states[user_id] = "wait_grp_msg_chatid"
-        bot.send_message(chat_id, "أرسل ID المجموعة المراد إرسال رسالة إليها:")
-        return
-
 # ==================== معالجة إدخالات لوحة الإدارة ====================
 def handle_admin_inputs(message):
     user_id = message.from_user.id
@@ -1775,6 +1888,24 @@ def handle_admin_inputs(message):
     state = admin_states.get(user_id)
 
     if not state:
+        return
+
+    # معالجة إرسال رسالة خاصة لمجموعة
+    if isinstance(state, dict) and state.get("state") == "wait_custom_grp_msg":
+        target_chat_id = state["target_chat_id"]
+        try:
+            if message.content_type == 'text':
+                bot.send_message(target_chat_id, text)
+            elif message.content_type == 'photo':
+                bot.send_photo(target_chat_id, message.photo[-1].file_id, caption=message.caption)
+            elif message.content_type == 'video':
+                bot.send_video(target_chat_id, message.video.file_id, caption=message.caption)
+            elif message.content_type == 'sticker':
+                bot.send_sticker(target_chat_id, message.sticker.file_id)
+            bot.reply_to(message, "✅ تم إرسال الرسالة إلى المجموعة بنجاح!")
+        except Exception as e:
+            bot.reply_to(message, f"❌ فشل إرسال الرسالة للمجموعة: {e}")
+        del admin_states[user_id]
         return
 
     if state == "wait_add_admin_id":
@@ -1981,39 +2112,23 @@ def handle_admin_inputs(message):
             c.execute("DELETE FROM series_questions WHERE id = ?", (int(text),))
             conn.commit()
             conn.close()
-            bot.reply_to(message, f"🗑️ تم حذف المسلسل ID {text}.")
+            bot.reply_to(message, f"🗑️ تم حذف سؤال المسلسل ID {text}.")
         else:
             bot.reply_to(message, "❌ ID غير صالح.")
         del admin_states[user_id]
 
     elif state == "wait_leave_grp_chatid":
         try:
-            target_chat = int(text)
-            bot.leave_chat(target_chat)
-            bot.reply_to(message, f"✅ تم مغادرة المجموعة `{target_chat}` بنجاح!", parse_mode="Markdown")
+            grp_id = int(text)
+            bot.leave_chat(grp_id)
+            bot.reply_to(message, f"✅ تم المغادرة من المجموعة `{grp_id}` بنجاح!", parse_mode="Markdown")
         except Exception as e:
-            bot.reply_to(message, f"❌ فشل مغادرة المجموعة: {e}")
+            bot.reply_to(message, f"❌ تعذر المغادرة: {e}")
         del admin_states[user_id]
 
-    elif state == "wait_grp_msg_chatid":
-        try:
-            admin_states[user_id] = {"state": "wait_grp_msg_text", "target_chat": int(text)}
-            bot.reply_to(message, "أرسل الرسالة المراد إرسالها للجروب:")
-        except:
-            bot.reply_to(message, "❌ ID غير صالح.")
-            del admin_states[user_id]
+# ==================== تشغيل خادم الحفاظ على العمل والإطلاق ====================
+keep_alive()
 
-    elif isinstance(state, dict) and state.get("state") == "wait_grp_msg_text":
-        target_chat = state["target_chat"]
-        try:
-            bot.send_message(target_chat, text)
-            bot.reply_to(message, "✅ تم إرسال الرسالة للجروب بنجاح!")
-        except Exception as e:
-            bot.reply_to(message, f"❌ فشل إرسال الرسالة: {e}")
-        del admin_states[user_id]
-
-# ==================== التشغيل ====================
-if __name__ == '__main__':
-    keep_alive()
-    print("🤖 البوت يعمل بنجاح ومستعد للتفاعل...")
+if __name__ == "__main__":
+    print("🤖 Bot Farfoush is running smoothly...")
     bot.infinity_polling(skip_pending=True)
