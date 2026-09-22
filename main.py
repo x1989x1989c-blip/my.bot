@@ -9,10 +9,14 @@ import urllib.parse
 import telebot
 from telebot import types
 import yt_dlp
-from keep_alive import keep_alive
+try:
+    from keep_alive import keep_alive
+except ImportError:
+    def keep_alive():
+        pass
 
 # ==================== الإعدادات الأساسية ====================
-TOKEN = "8880921736:AAFOlFgyuR9QZ1Lz62y2iqMxsdgyCfFIVIM"
+TOKEN = "8880921736:AAFlBnepEf8LDMg-uxQSerQgzBPeigu_NEA"
 ADMIN_ID = 8577656131
 
 bot = telebot.TeleBot(TOKEN)
@@ -269,7 +273,7 @@ def init_db():
         for rq, ra in riddles_list:
             cursor.execute("INSERT INTO riddles (question, answer) VALUES (?, ?)", (rq, ra))
 
-    # 3. إدخال الردود المخصصة التلقائية + الردود السورية الجديدة
+    # 3. إدخال الردود المخصصة التلقائية + الردود السورية
     extra_replies = [
         ("صباح الخير", "صباح النور… نورك مغطي عالصبح كله 😏"),
         ("مرحبا", "مرحبتين، وحدة إلك ووحدة لعيونك 😏❤️"),
@@ -318,7 +322,6 @@ def init_db():
         ("هات", "صدقت 😳"),
         ("هات", "فرفوش ماهون 🫣"),
         ("فرفوشتي", "نعم حبيبتي"),
-        # الردود باللهجة السورية المطلوب إضافتها
         ("فرفوش", "عيون فرفوش الروق كله! 😍"),
         ("فرفوش", "فرفوش بالخدمة والروق والسعادة! ✨"),
         ("فرفوش", "لبيه يا عيون فرفوش 😘"),
@@ -340,7 +343,7 @@ def init_db():
 
     # 4. قصص الجرائم
     cursor.execute("SELECT COUNT(*) FROM crime_stories")
-    if cursor.fetchone()[0] < 5:
+    if cursor.fetchone()[0] < 2:
         crimes_list = [
             ("في ليلة ممطرة، وُجد رجل الأعمال 'سليم' مقتولاً في مكتبه. المحاسب (فادي) يدعي أنه كان يراجع الأوراق، السكرتيرة (مريم) تقول أنها كانت تعد القهوة، والحارس (سامر) يقول أنه كان يقف عند الباب وشاهد شخصاً يرتدي معطفاً خردلياً.", "فادي", "فادي، مريم، سامر"),
             ("اختفت قلادة الماسية من الخزنة. الخادم (رامي) يقول أنه كان ينظف المطبخ، والطباخ (شادي) يقول أنه كان يقطع الخضار، والسائق (ماهر) يدعي أنه كان يغسل السيارة تحت المطر.", "ماهر", "رامي، شادي، ماهر")
@@ -1881,9 +1884,11 @@ def handle_admin_inputs(message):
                 c.execute("INSERT OR REPLACE INTO store VALUES (?, ?)", (name, int(price)))
                 conn.commit()
                 conn.close()
-                bot.reply_to(message, f"✅ تم إضافة `{name}` بسعر `{price}` ليرة!", parse_mode="Markdown")
+                bot.reply_to(message, f"✅ تم إضافة الصنف `{name}` بسعر `{price}` ليرة بنجاح!", parse_mode="Markdown")
             else:
-                bot.reply_to(message, "❌ السعر غير صحيح.")
+                bot.reply_to(message, "❌ السعر يجب أن يكون رقماً.")
+        else:
+            bot.reply_to(message, "❌ الصيغة غير صحيحة. يرجى الاستخدام: اسم - سعر")
         admin_states.pop(user_id, None)
         return
 
@@ -1893,140 +1898,179 @@ def handle_admin_inputs(message):
         c.execute("DELETE FROM store WHERE item_name = ?", (text,))
         conn.commit()
         conn.close()
-        bot.reply_to(message, f"✅ تم حذف الصنف `{text}` من المتجر.", parse_mode="Markdown")
+        bot.reply_to(message, f"✅ تم حذف الصنف `{text}` من المتجر بنجاح.")
         admin_states.pop(user_id, None)
         return
 
     if st == "wait_add_crime":
         if "|" in text:
-            p = text.split("|")
-            if len(p) == 3:
+            parts = text.split("|")
+            if len(parts) == 3:
+                story, killer, suspects = parts[0].strip(), parts[1].strip(), parts[2].strip()
                 conn = sqlite3.connect("bot_data.db")
                 c = conn.cursor()
-                c.execute("INSERT INTO crime_stories (story, killer, suspects) VALUES (?, ?, ?)", (p[0].strip(), p[1].strip(), p[2].strip()))
+                c.execute("INSERT INTO crime_stories (story, killer, suspects) VALUES (?, ?, ?)", (story, killer, suspects))
                 conn.commit()
                 conn.close()
                 bot.reply_to(message, "✅ تم إضافة قصة الجريمة بنجاح!")
+            else:
+                bot.reply_to(message, "❌ الصيغة غير صحيحة: القصة | القاتل | المشتبه بهم")
+        else:
+            bot.reply_to(message, "❌ يرجى الفصل باستخدام رمز |")
         admin_states.pop(user_id, None)
         return
 
-    if st == "wait_del_crime_id":
+    if st == "wait_del_crime":
         if text.isdigit():
             conn = sqlite3.connect("bot_data.db")
             c = conn.cursor()
             c.execute("DELETE FROM crime_stories WHERE id = ?", (int(text),))
             conn.commit()
             conn.close()
-            bot.reply_to(message, f"✅ تم حذف الجريمة رقم `{text}`.", parse_mode="Markdown")
+            bot.reply_to(message, f"✅ تم حذف الجريمة رقم `{text}` بنجاح.", parse_mode="Markdown")
+        else:
+            bot.reply_to(message, "❌ ID غير صحيح.")
         admin_states.pop(user_id, None)
         return
 
     if st == "wait_add_riddle":
         if "|" in text:
-            p = text.split("|")
-            conn = sqlite3.connect("bot_data.db")
-            c = conn.cursor()
-            c.execute("INSERT INTO riddles (question, answer) VALUES (?, ?)", (p[0].strip(), p[1].strip()))
-            conn.commit()
-            conn.close()
-            bot.reply_to(message, "✅ تم إضافة الحزورة بنجاح!")
+            parts = text.split("|")
+            if len(parts) == 2:
+                q, a = parts[0].strip(), parts[1].strip()
+                conn = sqlite3.connect("bot_data.db")
+                c = conn.cursor()
+                c.execute("INSERT INTO riddles (question, answer) VALUES (?, ?)", (q, a))
+                conn.commit()
+                conn.close()
+                bot.reply_to(message, "✅ تم إضافة الحزورة بنجاح!")
+            else:
+                bot.reply_to(message, "❌ الصيغة غير صحيحة: السؤال | الإجابة")
+        else:
+            bot.reply_to(message, "❌ يرجى الفصل باستخدام رمز |")
         admin_states.pop(user_id, None)
         return
 
-    if st == "wait_del_riddle_id":
+    if st == "wait_del_riddle":
         if text.isdigit():
             conn = sqlite3.connect("bot_data.db")
             c = conn.cursor()
             c.execute("DELETE FROM riddles WHERE id = ?", (int(text),))
             conn.commit()
             conn.close()
-            bot.reply_to(message, f"✅ تم حذف الحزورة رقم `{text}`.", parse_mode="Markdown")
+            bot.reply_to(message, f"✅ تم حذف الحزورة رقم `{text}` بنجاح.", parse_mode="Markdown")
+        else:
+            bot.reply_to(message, "❌ ID غير صحيح.")
         admin_states.pop(user_id, None)
         return
 
     if st == "wait_add_q":
-        conn = sqlite3.connect("bot_data.db")
-        c = conn.cursor()
-        c.execute("INSERT INTO questions (question) VALUES (?)", (text,))
-        conn.commit()
-        conn.close()
-        bot.reply_to(message, "✅ تم إضافة السؤال بنجاح!")
+        if text:
+            conn = sqlite3.connect("bot_data.db")
+            c = conn.cursor()
+            c.execute("INSERT INTO questions (question) VALUES (?)", (text,))
+            conn.commit()
+            conn.close()
+            bot.reply_to(message, "✅ تم إضافة السؤال بنجاح!")
         admin_states.pop(user_id, None)
         return
 
-    if st == "wait_del_q_id":
+    if st == "wait_del_q":
         if text.isdigit():
             conn = sqlite3.connect("bot_data.db")
             c = conn.cursor()
             c.execute("DELETE FROM questions WHERE id = ?", (int(text),))
             conn.commit()
             conn.close()
-            bot.reply_to(message, f"✅ تم حذف السؤال رقم `{text}`.", parse_mode="Markdown")
+            bot.reply_to(message, f"✅ تم حذف السؤال رقم `{text}` بنجاح.", parse_mode="Markdown")
+        else:
+            bot.reply_to(message, "❌ ID غير صحيح.")
         admin_states.pop(user_id, None)
         return
 
     if st == "wait_add_rep":
         if "|" in text:
-            p = text.split("|")
-            conn = sqlite3.connect("bot_data.db")
-            c = conn.cursor()
-            c.execute("INSERT INTO custom_replies (keyword, response, media_type) VALUES (?, ?, 'text')", (p[0].strip(), p[1].strip()))
-            conn.commit()
-            conn.close()
-            bot.reply_to(message, "✅ تم إضافة الرد بنجاح!")
+            parts = text.split("|")
+            if len(parts) == 2:
+                kw, resp = parts[0].strip(), parts[1].strip()
+                conn = sqlite3.connect("bot_data.db")
+                c = conn.cursor()
+                c.execute("INSERT INTO custom_replies (keyword, response, media_type) VALUES (?, ?, 'text')", (kw, resp))
+                conn.commit()
+                conn.close()
+                bot.reply_to(message, "✅ تم إضافة الرد المخصص بنجاح!")
+            else:
+                bot.reply_to(message, "❌ الصيغة غير صحيحة: الكلمة | الرد")
+        else:
+            bot.reply_to(message, "❌ يرجى الفصل باستخدام رمز |")
         admin_states.pop(user_id, None)
         return
 
-    if st == "wait_del_rep_id":
+    if st == "wait_del_rep":
         if text.isdigit():
             conn = sqlite3.connect("bot_data.db")
             c = conn.cursor()
             c.execute("DELETE FROM custom_replies WHERE id = ?", (int(text),))
             conn.commit()
             conn.close()
-            bot.reply_to(message, f"✅ تم حذف الرد رقم `{text}`.", parse_mode="Markdown")
+            bot.reply_to(message, f"✅ تم حذف الرد رقم `{text}` بنجاح.", parse_mode="Markdown")
+        else:
+            bot.reply_to(message, "❌ ID غير صحيح.")
         admin_states.pop(user_id, None)
         return
 
     if st == "wait_add_series":
         if "|" in text:
-            p = text.split("|")
-            conn = sqlite3.connect("bot_data.db")
-            c = conn.cursor()
-            c.execute("INSERT INTO series_questions (question, answer) VALUES (?, ?)", (p[0].strip(), p[1].strip()))
-            conn.commit()
-            conn.close()
-            bot.reply_to(message, "✅ تم إضافة سؤال المسلسل بنجاح!")
+            parts = text.split("|")
+            if len(parts) == 2:
+                q, a = parts[0].strip(), parts[1].strip()
+                conn = sqlite3.connect("bot_data.db")
+                c = conn.cursor()
+                c.execute("INSERT INTO series_questions (question, answer) VALUES (?, ?)", (q, a))
+                conn.commit()
+                conn.close()
+                bot.reply_to(message, "✅ تم إضافة سؤال المسلسل بنجاح!")
+            else:
+                bot.reply_to(message, "❌ الصيغة غير صحيحة: السؤال | اسم المسلسل")
+        else:
+            bot.reply_to(message, "❌ يرجى الفصل باستخدام رمز |")
         admin_states.pop(user_id, None)
         return
 
-    if st == "wait_del_series_id":
+    if st == "wait_del_series":
         if text.isdigit():
             conn = sqlite3.connect("bot_data.db")
             c = conn.cursor()
             c.execute("DELETE FROM series_questions WHERE id = ?", (int(text),))
             conn.commit()
             conn.close()
-            bot.reply_to(message, f"✅ تم حذف سؤال المسلسل رقم `{text}`.", parse_mode="Markdown")
+            bot.reply_to(message, f"✅ تم حذف المسلسل رقم `{text}` بنجاح.", parse_mode="Markdown")
+        else:
+            bot.reply_to(message, "❌ ID غير صحيح.")
         admin_states.pop(user_id, None)
         return
 
     if st == "wait_leave_grp_id":
         try:
-            bot.leave_chat(int(text))
-            bot.reply_to(message, f"✅ تم المغادرة من المجموعة `{text}` بنجاح!", parse_mode="Markdown")
+            grp_id = int(text)
+            bot.leave_chat(grp_id)
+            bot.reply_to(message, f"✅ تم المغادرة من المجموعة `{grp_id}` بنجاح!", parse_mode="Markdown")
         except Exception as e:
-            bot.reply_to(message, f"❌ فشلت المغادرة: {e}")
+            bot.reply_to(message, f"❌ متعذر المغادرة: {e}")
         admin_states.pop(user_id, None)
         return
 
-# ==================== التشغيل المستمر ====================
-keep_alive()
+# ==================== التشغيل الرئيسي ====================
+if __name__ == '__main__':
+    try:
+        keep_alive()
+    except Exception:
+        pass
+        
+    try:
+        bot.remove_webhook()
+    except Exception:
+        pass
 
-if __name__ == "__main__":
-    print("🤖 البوت يعمل بكفاءة وشامل لجميع الميزات المحدثة...")
-    while True:
-        try:
-            bot.infinity_polling(timeout=60, long_polling_timeout=30)
-        except Exception as e:
-            time.sleep(3)
+    print("🚀 البوت يعمل بنجاح...")
+    bot.infinity_polling(skip_pending=True)
