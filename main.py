@@ -214,67 +214,85 @@ def init_db():
         for q in questions_list:
             cursor.execute("INSERT INTO questions (question) VALUES (?)", (q,))
 
-    # 2. إدخال الحزازير
-    cursor.execute("SELECT COUNT(*) FROM riddles")
-    if cursor.fetchone()[0] != 50:
-        cursor.execute("DELETE FROM riddles")
-        riddles_list = [
-            ("ما هو الشيء الذي كلما أخذت منه كبر؟", "الحفرة"),
-            ("ما هو الشيء الذي يتكلم جميع اللغات؟", "الصدى"),
-            ("ما هو الشيء الذي يسير بلا رجلين ولا يدخل إلا بالإذن؟", "الصوت"),
-            ("شيء إله عين وما بيشوف، شو هو؟", "الإبرة"),
-            ("ما هو الشيء الذي يكتب ولا يقرأ؟", "القلم"),
-            ("ما هو الشيء الذي إذا شرب مات وإذا أكل عاش؟", "النار"),
-            ("له أوراق وليس شجرة، وله جلد وليس حيوان، فما هو؟", "الكتاب"),
-            ("ما هو الشيء الذي يمشي طول اليوم ولا يتعب أبداً؟", "الساعة"),
-            ("ما هو الشيء الذي يحملك وتحمله في نفس الوقت؟", "الحذاء"),
-            ("ما هو البيت الذي ليس فيه أبواب ولا نوافذ؟", "بيت الشعر"),
-            ("شيء يخترق الزجاج ولا يكاسره، ما هو؟", "الضوء"),
-            ("ما هو الشيء الذي ينزل ولا يصعد أبداً؟", "المطر"),
-            ("ما هو الشيء الذي يوجد في وسط باريس؟", "حرف ر"),
-            ("ما هو الشيء الذي يكون أخضر في الأرض وأسود في السوق وأحمر في البيت؟", "الشاي"),
-            ("أين يقع البحر الذي لا يوجد فيه ماء؟", "على الخريطة"),
-            ("ما هو الشيء الذي لا يمكنك استخدامه إلا إذا كسرته؟", "البيض"),
-            ("ما هو الشيء الذي يتبعك أينما ذهبت في النهار ويختفي بالليل؟", "الظل"),
-            ("ما هو الشيء الذي يملك رقبة ولكن ليس لديه رأس؟", "الزجاجة"),
-            ("ما هو الشيء الذي كلما زاد نقص؟", "العمر"),
-            ("ما هو الشيء الذي يربيه الأب وتذبحه الأم وتبكي عليه الأخت ويقتله الأخ؟", "البصل"),
-            ("ما هو الشيء الذي لا يمشي إلا بالضرب؟", "المسمار"),
-            ("ما هو القفص الذي لا يحبس فيه طير ولا حيوان؟", "القفص الصدري"),
-            ("ما هو الشيء الذي يمر عبر المدن والقبائل ولا يتحرك؟", "الطريق"),
-            ("ما هو الشيء الذي يستطيع أن يملأ الغرفة دون أن شغل مساحة؟", "النور"),
-            ("ما هو الشيء الذي يقرصك ولا تراه؟", "الجوع"),
-            ("ما هو الشيء الذي له أربعة أرجل ولا يستطيع المشي؟", "الكرسي"),
-            ("شيء ينبض بلا قلب، ما هو؟", "الساعة"),
-            ("ما هو الشيء الذي إذا غليته تجمد؟", "البيض"),
-            ("من هو الخال الوحيد لأولاد عمتك؟", "والدك"),
-            ("ما هو الشيء الذي إذا لمسته صاح؟", "الجرس"),
-            ("إذا أطعمته كبر وإذا سقيته مات، ما هو؟", "النار"),
-            ("شيء يخرج من الماء ويموت بالماء؟", "الملح"),
-            ("ما هو الشيء الذي يمتلك مفاتيح كثيرة ولكنه لا يستطيع فتح أي باب؟", "البيانو"),
-            ("شيء أوله عين وآخره سن، ما هو؟", "العنب"),
-            ("ما هو الشيء الذي لا يبتل حتى لو نزل في الماء؟", "الضوء"),
-            ("ما هو الشيء الذي له أسنان ولا يعض؟", "المشط"),
-            ("يمشي بلا رجلين ويبكي بلا عينين، ما هو؟", "السحاب"),
-            ("ما هو الشيء الذي إذا نطقته كسرته؟", "الصمت"),
-            ("ما هو الشيء الذي تحمله ويحملك؟", "الحذاء"),
-            ("ما هو الشيء الذي يكون في الصيف داكناً وفي الشتاء أبيض؟", "الجبل"),
-            ("كائن يرى كل شيء وليس له عيون، ما هو؟", "المرأة"),
-            ("ما هو الشيء الذي يدور حول الحديقة دون أن يتحرك؟", "السور"),
-            ("ما هي العروس التي بلا عريس؟", "الدمية"),
-            ("ما هو الشيء الذي ترميه كلما احتجت إليه؟", "شبكة الصيد"),
-            ("ما هو الشيء الذي يوجد بين السماء والأرض؟", "حرف الواو"),
-            ("ما هو الشيء الذي تراه في الظلام ولا تراه في النور؟", "الظلام"),
-            ("ما هو الشيء الذي تسمعه ولا تراه وإذا رأيته لا تسمعه؟", "الطلقة"),
-            ("ما هو الشجر الذي ليس له ظل ولا ثمار؟", "شجرة العائلة"),
-            ("ابن أمك وابن أبيك، وليس بأخيك ولا بأختك، فمن يكون؟", "أنت"),
-            ("ما هو الشيء الذي يقف وينزل بلا حركة؟", "درجة الحرارة")
-        ]
-        for rq, ra in riddles_list:
-            cursor.execute("INSERT INTO riddles (question, answer) VALUES (?, ?)", (rq, ra))
+    # 2. تحديث وتجديد 50 حزورة جديدة ومنطقية بالكامل
+    cursor.execute("DELETE FROM riddles")
+    new_riddles_list = [
+        ("ما هو الشيء الذي يتكلم كل لغات العالم بدون أن ينطق كلمة؟", "الصدى"),
+        ("ما هو الشيء الذي كُلما أخذت منه كَبُر وزاد حجمه؟", "الحفرة"),
+        ("شيء يحملك وتحمله في نفس الوقت أينما ذهبت، ما هو؟", "الحذاء"),
+        ("ما هو الشيء الذي ينزل من السماء ولا يصعد إليها أبداً؟", "المطر"),
+        ("له أوراق كثيرة ولكنه ليس بنبات، وله جلد وليس بليوم حيوان، ما هو؟", "الكتاب"),
+        ("يمشي بدون رجلين، ويبكي بدون عينين، فما هو؟", "السحاب"),
+        ("ما هو الشيء الذي كلما زاد نقص؟", "العمر"),
+        ("ما هو البيت الذي لا يحتوي على أبواب ولا نوافذ ولا غرف؟", "بيت الشعر"),
+        ("شيء يكتب ولا يستطيع القراءة، ما هو؟", "القلم"),
+        ("ما هو الشيء الذي يُقرصك دون أن تراه أو تلمسه؟", "الجوع"),
+        ("له أسرار كبرى وتراه في السماء والماء، وهو موجود بين الأرض والسماء، ما هو؟", "حرف الواو"),
+        ("أين يقع البحر الذي لا توجد فيه نقطة ماء واحدة؟", "على الخريطة"),
+        ("ما هو الشيء الذي إذا صببت عليه الماء لا يبتل؟", "الضوء"),
+        ("شيء يملك رقبة ولكنه بلا رأس، ما هو؟", "الزجاجة"),
+        ("ما هو الشيء الذي لا يستفاد منه إلا بعد كسره؟", "البيض"),
+        ("كائن يرى كل شيء حوله ولكنه لا يملك عيوناً، ما هو؟", "المرآة"),
+        ("ما هو الشيء الذي يستطيع ملء الغرفة كاملة دون أن يشغل أي مساحة؟", "النور"),
+        ("شيء يمر عبر المدن والقرى والجبال ولكنه لا يتحرك أبداً، ما هو؟", "الطريق"),
+        ("ما هو القفص الذي لا يستطيع الحفاظ على طائر أو حيوان بداخله؟", "القفص الصدري"),
+        ("شيء يطوف حول الحديقة بأكملها دون أن يقفز أو يتحرك، ما هو؟", "السور"),
+        ("ما هو الشيء الذي يملك أسنان كثيرة ولكنه لا يعض أبداً؟", "المشط"),
+        ("من هو الشخص الذي يرى عدوه وصديقه بعين واحدة فقط؟", "الأعور"),
+        ("شيء إذا أطعمته كبر وقوي، وإذا سقيته ماءً مات؟", "النار"),
+        ("ما هو الشيء الذي يملك مفاتيح كثيرة جداً ولكنه لا يفتح أي باب؟", "البيانو"),
+        ("إذا دخل الماء لم يبتل، وإذا قطعته لا ينزل منه دم، ما هو؟", "الظل"),
+        ("أخضر في حقلها، وأسود في السوق، وأحمر في بيتك، ما هو؟", "الشاي"),
+        ("شيء ينبض باستمرار دون أن يملك قلباً، ما هو؟", "الساعة"),
+        ("ما هو الشيء الذي يحوي أرقاماً كثيرة ولكنه لا يحسب ولا يفكر؟", "التقويم"),
+        ("ما هو الشيء الذي يكون أمامك دائماً ولكنك لا تستطيع رؤيته؟", "المستقبل"),
+        ("ما هي العروس التي تزف بلا عريس؟", "الدمية"),
+        ("ما هو الشيء الذي ترميه في البحر كلما احتجت إليه؟", "شبكة الصيد"),
+        ("ابن أمك وابن أبيك، وليس بأخيك ولا بأختك، فمن يكون؟", "أنت"),
+        ("ما هو الشيء الذي إذا غليته على النار يتجمد بدلاً من أن يذوب؟", "البيض"),
+        ("شيء يملك أربعة أرجل في الصباح ولا يستطيع المشي أبداً، ما هو؟", "الطاولة"),
+        ("ما هو الشيء الذي تجده في وسط باريس؟", "حرف ر"),
+        ("شيء أوله عين وأخيره سن، فما هو؟", "العنب"),
+        ("ما هو الشيء الذي يستطيع الثقب والعبور من الزجاج دون أن يكسره؟", "الضوء"),
+        ("ما هو الشجر الذي ليس له ثمر ولا يملك ظلاً؟", "شجرة العائلة"),
+        ("شيء يخرج من الماء ويموت فور دخوله الماء، ما هو؟", "الملح"),
+        ("ما هو الشيء الذي تسمعه وتراه ولكنك لا تتكلم معه إلا بإذن؟", " التلفاز"),
+        ("ما هو الشيء الذي يقف وينزل دون أن يتحرك خطوة واحدة؟", "درجة الحرارة"),
+        ("إذا أردت استخدامه رميته، وإذا انتهيت منه جمعته، ما هو؟", "المرساة"),
+        ("ما هو الشيء الذي يربيه الأب وتذبحه الأم ويبكي عليه الجميع؟", "البصل"),
+        ("شيء يملك عين واحدة ولكنه لا يرى بها أبداً، ما هو؟", "الإبرة"),
+        ("ما هو الصندوق الذي يملك أقفالاً موسيقية؟", "البيانو"),
+        ("شيء يمشي بلا أرجل ولا يدخل إلا بالاستئذان، ما هو؟", "الصوت"),
+        ("ما هو الشيء الذي يتبعك طوال النهار ويختفي في الليل تماماً؟", "الظل"),
+        ("ما هو الشيء الذي يمكنك إمساكه بيدك اليمنى ولا تستطيع إمساكه بيدك اليسرى؟", "كوعك الأيسر"),
+        ("ما هو الشيء الذي يصبح أطول عندما يكون صغيراً وأقصر عندما يكبر؟", "الشمعة"),
+        ("شيء يطير بلا أجنحة ويبكي بلا عيون، ما هو؟", "السحاب")
+    ]
+    for rq, ra in new_riddles_list:
+        cursor.execute("INSERT INTO riddles (question, answer) VALUES (?, ?)", (rq, ra))
 
-    # 3. إدخال الردود المخصصة التلقائية + الردود السورية
+    # 3. إدخال الردود المخصصة التلقائية + الردود السورية الترفيهية الفرفوشة
     extra_replies = [
+        # ردود سورية ترفيهية على كلمة "بحبك"
+        ("بحبك", "وانا بحبك قد المتة والبحيرة! ❤️😍"),
+        ("بحبك", "لك يسلملي ربك وانا بعشقك يا عسل! 🥰"),
+        ("بحبك", "بحبك الحب كلو بس لا تطلب مني مصاري 😂💔"),
+        ("بحبك", "لك تقبر قلبي الهي! عيون فرفوش إلك ❤️"),
+        ("بحبك", "يا عيني على الكلام الحلو! خجلتني والرب 🙈"),
+
+        # ردود سورية ترفيهية على كلمة "بكرهك"
+        ("بكرهك", "ليش يا غالي شو عملتلك؟ بتضل على راسي والله! 🥹❤️"),
+        ("بكرهك", "تكرهني؟ لك انا يلي شغال ليل نهار كرمالك! 💔😭"),
+        ("بكرهك", "ما بني شي بس انكسر خاطري صراحة 😔"),
+        ("بكرهك", "حتى لو كرهتني، فرفوش بيحبك غصباً عنك! 😘💃"),
+
+        # ردود سورية ترفيهية على كلمة "بتحبني"
+        ("بتحبني", "بحبك وبموت عليك وعلى عيونك كمان! ❤️"),
+        ("بتحبني", "يعني بالله عليك في بوت بيقدر ما يحب أحلى عضو بالجروب؟ 😍"),
+        ("بتحبني", "أكيد بحبك، بس القعدة معك بدها كاسة متة مظبوطة! ☕✨"),
+        ("بتحبني", "اي بحبك، بس لا تعيدها قدام المدام للفضايح 😂"),
+
+        # ردود سابقة وحماية وتسلية
         ("صباح الخير", "صباح النور… نورك مغطي عالصبح كله 😏"),
         ("مرحبا", "مرحبتين، وحدة إلك ووحدة لعيونك 😏❤️"),
         ("تصبحو على خير", "تصبحوا على خير، وإذا حدا حلم فيني بدي نسبة من الأرباح 😂"),
@@ -282,7 +300,7 @@ def init_db():
         ("بوت", "قول اسمي مطوريني تعبو لساووني 😡 @syabd0 . @Lolo123000"),
         ("بوت", "اسمي فرفوووش"),
         ("بوت", "بوت بعينك اسمي فرفوش"),
-        ("بوت", "قولا مرة تانية ورباح خلاط 😡"),
+        ("قولا مرة تانية ورباح خلاط 😡", "خلاط ممتاز 😂"),
         ("كيفك", "رميها على الله 😔"),
         ("كيفك", "بخير بشوفتك 🌝"),
         ("كيفك", "منيح تروح ناكل؟"),
@@ -450,6 +468,17 @@ def clean_urls_and_sources(text):
     text = re.sub(r'\[\d+\]', '', text)
     return text.strip()
 
+def clean_syrian_search_query(text):
+    # تنظيف كلمات الطلب باللهجة السورية للحصول على نتائج بحث دقيقة جداً
+    remove_words = [
+        "بدي غنية", "بدي اغنية", "نزللي غنية", "نزل اغنية", "شغلي غنية", "شغل اغنية",
+        "بديا غنية", "بدي فيديو", "نزل فيديو", "شغل فيديو", "كليب", "يا بوت", "فرفوش"
+    ]
+    cleaned = text
+    for w in remove_words:
+        cleaned = re.sub(r'\b' + re.escape(w) + r'\b', '', cleaned, flags=re.IGNORECASE)
+    return cleaned.strip() or text
+
 def send_large_text(chat_id, header, items_list):
     if not items_list:
         bot.send_message(chat_id, f"{header}\n\nلا توجد بيانات مخزنة حالياً.")
@@ -472,7 +501,7 @@ def fetch_ai_answer(question):
         "Accept-Language": "ar,en;q=0.9"
     }
 
-    sys_prompt = "أنت مساعد ذكي واسمك فرفوش، تعمل بنظام Gemini المتطور. أجب عن سؤال المستخدم باللغة العربية بشكل دقيق ومباشر ومنطقي جداً بناءً على ما طلبه حصراً دون تعذر. يمنع منعاً باتاً ذكر أي روابط أو خروج عن موضوع السؤال أو ذكر أي مصادر."
+    sys_prompt = "أنت مساعد ذكي واسمك فرفوش، تعمل بنظام Gemini المتطور وتفهم اللهجة السورية والعربية بدقة. أجب عن سؤال المستخدم بشكل دقيق ومباشر ومنطقي جداً بناءً على ما طلبه حصراً دون تعذر. يمنع منعاً باتاً ذكر أي روابط أو خروج عن موضوع السؤال أو ذكر أي مصادر."
 
     models_chain = ["gemini", "gemini-thinking", "openai", "deepseek", "qwen"]
 
@@ -486,7 +515,7 @@ def fetch_ai_answer(question):
                 "model": model,
                 "seed": random.randint(1, 99999)
             }
-            res = requests.post("https://text.pollinations.ai/", json=payload, headers={**headers, "Content-Type": "application/json"}, timeout=8)
+            res = requests.post("https://text.pollinations.ai/", json=payload, headers={**headers, "Content-Type": "application/json"}, timeout=10)
             if res.status_code == 200 and res.text:
                 ans = clean_urls_and_sources(res.text)
                 if ans and len(ans) > 5 and not any(bad in ans.lower() for bad in ["timed out", "error", "504", "403"]):
@@ -497,13 +526,22 @@ def fetch_ai_answer(question):
     return "أهلاً بك يا غالي! أعتذر عن التأخير البسيط. تفضل بتكرار سؤالك وسأجيبك فوراً بدقة عالية."
 
 def generate_image_pollinations(prompt):
+    # تنظيف العبارات الشائعة باللهجة السورية قبل إرسال الوصف للإنشاء
+    clean_prompt = prompt
+    syrian_phrases = ["بدي ساوي صورة", "ساويلي صورة", "اعملي صورة", "رسيملي صورة", "بدي صورة", "صورة لـ", "صورة"]
+    for p in syrian_phrases:
+        clean_prompt = clean_prompt.replace(p, "").strip()
+    
+    if not clean_prompt:
+        clean_prompt = prompt
+
     models = ["flux", "flux-realism", "any-dark"]
-    encoded_prompt = urllib.parse.quote(prompt)
+    encoded_prompt = urllib.parse.quote(clean_prompt)
     
     for m in models:
         try:
             url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&seed={random.randint(1, 999999)}&nologo=true&model={m}"
-            res = requests.get(url, timeout=18)
+            res = requests.get(url, timeout=20)
             if res.status_code == 200 and len(res.content) > 2000:
                 return res.content
         except Exception:
@@ -512,7 +550,8 @@ def generate_image_pollinations(prompt):
 
 # ==================== خدمات تحميل الصوتيات والفيديو ====================
 def download_and_send_audio(chat_id, query, message_id):
-    status_msg = bot.send_message(chat_id, f"🔍 **جاري البحث وتحميل الصوت فوراُ...**", parse_mode="Markdown")
+    clean_q = clean_syrian_search_query(query)
+    status_msg = bot.send_message(chat_id, f"🔍 **جاري البحث وتحميل الصوت فوراً...**", parse_mode="Markdown")
     if not os.path.exists('downloads'):
         os.makedirs('downloads')
 
@@ -530,7 +569,7 @@ def download_and_send_audio(chat_id, query, message_id):
         'cachedir': False,
     }
 
-    search_targets = [query] if query.startswith("http") else [f"ytsearch1:{query}", f"scsearch1:{query}"]
+    search_targets = [clean_q] if clean_q.startswith("http") else [f"ytsearch1:{clean_q}", f"scsearch1:{clean_q}"]
 
     for target in search_targets:
         try:
@@ -560,9 +599,10 @@ def download_and_send_audio(chat_id, query, message_id):
         except Exception:
             continue
 
-    bot.edit_message_text("❌ تعذر تحميل الصوت حالياً، تأكد من صحة الرابط أو جرب لاحقاً.", chat_id, status_msg.message_id)
+    bot.edit_message_text("❌ تعذر تحميل الصوت حالياً، تأكد من صحة الرابط أو اسم الأغنية.", chat_id, status_msg.message_id)
 
 def download_and_send_video(chat_id, query, message_id):
+    clean_q = clean_syrian_search_query(query)
     status_msg = bot.send_message(chat_id, f"🎬 **جاري البحث وتحميل الفيديو...**", parse_mode="Markdown")
     if not os.path.exists('downloads'):
         os.makedirs('downloads')
@@ -571,7 +611,7 @@ def download_and_send_video(chat_id, query, message_id):
     output_template = f"{file_prefix}.%(ext)s"
 
     ydl_opts = {
-        'format': 'bestvideo[ext=mp4][filesize<45M]+bestaudio[ext=m4a]/best[ext=mp4][filesize<45M]/best[filesize<45M]',
+        'format': 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best[filesize<45M]',
         'outtmpl': output_template,
         'noplaylist': True,
         'quiet': True,
@@ -581,14 +621,14 @@ def download_and_send_video(chat_id, query, message_id):
         'cachedir': False,
     }
 
-    target = query if query.startswith("http") else f"ytsearch1:{query}"
+    target = clean_q if clean_q.startswith("http") else f"ytsearch1:{clean_q}"
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(target, download=True)
             if info:
                 video_info = info['entries'][0] if 'entries' in info and len(info['entries']) > 0 else info
-                title = video_info.get('title', query) if video_info else query
+                title = video_info.get('title', clean_q) if video_info else clean_q
 
                 downloaded_file = None
                 for ext in ['mp4', 'mkv', 'webm']:
@@ -655,7 +695,7 @@ def send_welcome_message(message):
     bot.reply_to(message, welcome_text, reply_markup=markup, parse_mode="Markdown")
 
 # ==================== الموجه الرئيسي الحماية والأوامر ====================
-@bot.message_handler(func=lambda message: True, content_types=['text', 'photo', 'video', 'sticker'])
+@bot.message_handler(func=lambda message: True, content_types=['text', 'photo', 'video', 'audio', 'voice', 'sticker'])
 def main_router(message):
     text = (message.text or message.caption or "").strip()
     chat_type = message.chat.type
@@ -669,6 +709,11 @@ def main_router(message):
     conn.close()
 
     if is_muted and not is_admin(user_id):
+        return
+
+    # معالجة مدخلات أدمن الردود المخصصة المتعددة
+    if is_admin(user_id) and user_id in admin_states:
+        handle_admin_inputs(message)
         return
 
     if text.startswith("/start") or text.lower() == "ستارت":
@@ -786,11 +831,7 @@ def main_router(message):
                 bot.edit_message_text("❌ تعذر إنشاء الصورة حالياً، حاول بوصف آخر.", chat_id, gen_msg.message_id)
             return
 
-    # معالجة مدخلات الأدمن أو الأوامر
-    if is_admin(user_id) and user_id in admin_states:
-        handle_admin_inputs(message)
-    else:
-        process_bot_commands(message)
+    process_bot_commands(message)
 
 # ==================== معالجة الأوامر والردود ====================
 def process_bot_commands(message):
@@ -890,6 +931,10 @@ def process_bot_commands(message):
             bot.send_photo(chat_id, file_id, caption=rep_text, reply_to_message_id=message.message_id)
         elif media_type == 'video' and file_id:
             bot.send_video(chat_id, file_id, caption=rep_text, reply_to_message_id=message.message_id)
+        elif media_type == 'audio' and file_id:
+            bot.send_audio(chat_id, file_id, caption=rep_text, reply_to_message_id=message.message_id)
+        elif media_type == 'voice' and file_id:
+            bot.send_voice(chat_id, file_id, reply_to_message_id=message.message_id)
         else:
             bot.reply_to(message, rep_text)
         return
@@ -991,7 +1036,7 @@ def process_bot_commands(message):
         download_and_send_audio(chat_id, query, message.message_id)
         return
 
-    # لعبة الرهان (مقيدة كل دقيقة - 50% ربح / 50% خسارة)
+    # لعبة الرهان
     if text.startswith("راهن"):
         current_time = int(time.time())
         conn = sqlite3.connect("bot_data.db")
@@ -1040,7 +1085,7 @@ def process_bot_commands(message):
             bot.reply_to(message, "💡 للمراهنة أرسل:\n`راهن [المبلغ]`\nمثال: `راهن 20`", parse_mode="Markdown")
         return
 
-    # لعبة العجلة (مقيدة كل دقيقة - 50% ربح / 50% خسارة)
+    # لعبة العجلة
     if text in ["عجلة", "العجلة", "لعبة العجلة"]:
         current_time = int(time.time())
         conn = sqlite3.connect("bot_data.db")
@@ -1080,7 +1125,7 @@ def process_bot_commands(message):
             bot.reply_to(message, "🎡 **درت عجلة الحظ!**\nتم خصم 50 ليرة... وخسرت! حظاً أفضل في المرة القادمة 💔", parse_mode="Markdown")
         return
 
-    # لعبة XO (رسمية ومجانية والرابح يحصل على 100 ليرة)
+    # لعبة XO
     if text in ["اكسني", "لعبة اكس اوه"]:
         bot.send_message(chat_id, f"🎮 **لعبة XO جديدة ومجانية بالكامل!**\nالمنافس الأول: {message.from_user.first_name}\n🎁 **جائزة الفائز:** 100 ليرة وهمية!\nاضغط للانضمام والمنافسة:", reply_markup=get_xo_keyboard(None, user_id, message.from_user.first_name))
         return
@@ -1802,9 +1847,10 @@ def handle_admin_actions(call):
         bot.send_message(chat_id, "أرسل نص السؤال المراد إضافته:")
         return
 
+    # النظام الجديد والمطور لإضافة ردود متعددة الوسائط
     if call.data == "admin_add_rep":
-        admin_states[user_id] = "wait_add_rep"
-        bot.send_message(chat_id, "أرسل الرد بصيغة:\n`الكلمة | الرد`", parse_mode="Markdown")
+        admin_states[user_id] = "wait_add_rep_keyword"
+        bot.send_message(chat_id, "📝 **أرسل الكلمة المفتاحية أولاً (التي سيرد عليها البوت):**", parse_mode="Markdown")
         return
 
     if call.data == "admin_add_series":
@@ -1820,8 +1866,70 @@ def handle_admin_actions(call):
 def handle_admin_inputs(message):
     user_id = message.from_user.id
     chat_id = message.chat.id
-    text = (message.text or "").strip()
+    text = (message.text or message.caption or "").strip()
     st = admin_states.get(user_id)
+
+    # المرحلة 1: استقبال الكلمة المفتاحية للرد المخصص
+    if st == "wait_add_rep_keyword":
+        if text:
+            admin_states[user_id] = {"state": "wait_add_rep_content", "keyword": text}
+            bot.reply_to(
+                message, 
+                f"✅ تم تحديد الكلمة: `{text}`\n\n"
+                "🎯 **الآن أرسل الردود التي تريد إضافتها لها:**\n"
+                "• يمكنك إرسال (نص، صورة، مقطع فيديو، صوتية، بصمة صوت، أو ملصق).\n"
+                "• يمكنك إرسال **أكثر من رد متتالي** لنفس الكلمة!\n"
+                "• عند الانتهاء أرسل كلمة **تم** للختام.",
+                parse_mode="Markdown"
+            )
+        else:
+            bot.reply_to(message, "❌ يرجى إرسال الكلمة بنص واضح.")
+        return
+
+    # المرحلة 2: استقبال الردود المتعددة بنفس الوقت للكلمة المحفوظة
+    if isinstance(st, dict) and st.get("state") == "wait_add_rep_content":
+        keyword = st.get("keyword")
+        if text.lower() in ["تم", "تم الانتهاء", "خلاص"]:
+            admin_states.pop(user_id, None)
+            bot.reply_to(message, f"🎉 **تم الانتهاء من إضافة جميع الردود للكلمة (`{keyword}`) بنجاح!**", parse_mode="Markdown")
+            return
+
+        media_type = 'text'
+        file_id = None
+        response_text = text
+
+        if message.content_type == 'photo':
+            media_type = 'photo'
+            file_id = message.photo[-1].file_id
+            response_text = message.caption or ''
+        elif message.content_type == 'video':
+            media_type = 'video'
+            file_id = message.video.file_id
+            response_text = message.caption or ''
+        elif message.content_type == 'audio':
+            media_type = 'audio'
+            file_id = message.audio.file_id
+            response_text = message.caption or ''
+        elif message.content_type == 'voice':
+            media_type = 'voice'
+            file_id = message.voice.file_id
+            response_text = ''
+        elif message.content_type == 'sticker':
+            media_type = 'sticker'
+            file_id = message.sticker.file_id
+            response_text = ''
+
+        conn = sqlite3.connect("bot_data.db")
+        c = conn.cursor()
+        c.execute(
+            "INSERT INTO custom_replies (keyword, response, media_type, file_id) VALUES (?, ?, ?, ?)",
+            (keyword, response_text, media_type, file_id)
+        )
+        conn.commit()
+        conn.close()
+
+        bot.reply_to(message, f"✅ **تم إضافة هذا الرد للكلمة (`{keyword}`) بنجاح!**\n💡 يمكنك إرسال رد آخر الآن أو أرسل كلمة **تم** للإنهاء.", parse_mode="Markdown")
+        return
 
     if isinstance(st, dict) and st.get("state") == "wait_custom_grp_msg":
         target_g_id = st.get("target_chat_id")
@@ -1988,24 +2096,6 @@ def handle_admin_inputs(message):
         admin_states.pop(user_id, None)
         return
 
-    if st == "wait_add_rep":
-        if "|" in text:
-            parts = text.split("|")
-            if len(parts) == 2:
-                kw, resp = parts[0].strip(), parts[1].strip()
-                conn = sqlite3.connect("bot_data.db")
-                c = conn.cursor()
-                c.execute("INSERT INTO custom_replies (keyword, response, media_type) VALUES (?, ?, 'text')", (kw, resp))
-                conn.commit()
-                conn.close()
-                bot.reply_to(message, "✅ تم إضافة الرد المخصص بنجاح!")
-            else:
-                bot.reply_to(message, "❌ الصيغة غير صحيحة: الكلمة | الرد")
-        else:
-            bot.reply_to(message, "❌ يرجى الفصل باستخدام رمز |")
-        admin_states.pop(user_id, None)
-        return
-
     if st == "wait_del_rep":
         if text.isdigit():
             conn = sqlite3.connect("bot_data.db")
@@ -2072,5 +2162,5 @@ if __name__ == '__main__':
     except Exception:
         pass
 
-    print("🚀 البوت يعمل بنجاح...")
+    print("🚀 البوت يعمل بنجاح وبكفاءة عالية...")
     bot.infinity_polling(skip_pending=True)
