@@ -224,7 +224,6 @@ def init_db():
             "شاورما ولا سكالوب؟",
             "بيتزا ولا برغر؟",
             "بتحبني ولا بتحبني؟",
-            # أسئلة جديدة مضافة
             "لو خيروك بين السفر إلى المستقبل أو العودة إلى الماضي، أيهما تختار ولماذا؟",
             "ما هي القوة الخارقة التي تتمنى امتلاكها لو كنت بطلاً خارقاً؟",
             "إذا أتيحت لك فرصة تغيير اسمك، ما الاسم الذي ستختاره؟",
@@ -433,6 +432,7 @@ active_crime_games = {}
 active_series_games = {}
 xo_games = {}
 min_kafo_games = {}  # لعبة مين كفو
+pending_name_changes = {}  # حفظ طلبات تغيير الاسم في لعبة مين كفو (chat_id, user_id) -> data
 
 # ==================== أدوات مساعدة ====================
 def is_admin(user_id):
@@ -907,7 +907,73 @@ def process_bot_commands(message):
                 bot.reply_to(message, "انت عضو بس عضو من قلبي ♥️")
         return
 
-    # ==================== لعبة "مين كفو" ====================
+    # ==================== فحص وتأكيد تغيير الاسم واسترجاعه في لعبة مين كفو ====================
+    if text.lower() in ["غيرت اسمي", "غيرت الاسم"]:
+        key = (chat_id, user_id)
+        if key in pending_name_changes:
+            data = pending_name_changes[key]
+            req_title = data['required_title']
+            orig_name = data['original_name']
+            
+            try:
+                chat_mem = bot.get_chat_member(chat_id, user_id)
+                current_first_name = chat_mem.user.first_name or ""
+                current_last_name = chat_mem.user.last_name or ""
+                full_current_name = f"{current_first_name} {current_last_name}".strip()
+            except Exception:
+                full_current_name = message.from_user.first_name or ""
+
+            clean_req = req_title.replace("🐒", "").replace("☕", "").replace("🌯", "").replace("💔", "").replace("🤖", "").replace("👑", "").replace("🐰", "").replace("👽", "").strip()
+            
+            if clean_req.lower() in full_current_name.lower() or req_title.lower() in full_current_name.lower():
+                bot.reply_to(
+                    message,
+                    f"🔥 **كفووو والرب!**\n"
+                    f"الاسم الجديد (**{full_current_name}**) بيلبقلك عالآخر والله! 😂👏\n\n"
+                    f"اصبر بالاسم الجديد لمدة **5 دقائق**، وبعدها ارسل كلمة `ترجيع اسمي` ليرجعلك الإذن بترجيع اسمك الأصلي (**{orig_name}**).",
+                    parse_mode="Markdown"
+                )
+            else:
+                bot.reply_to(
+                    message,
+                    f"😜 **ولك لسا ما غيرت اسمك بجد!**\n"
+                    f"المطلوب تحط بأسك الحسابي: (**{req_title}**)\n"
+                    f"غيّره من إعدادات التلغرام وأرسل `غيرت اسمي` لحتى نأكدلك العضوية الكفو! 😂",
+                    parse_mode="Markdown"
+                )
+        else:
+            bot.reply_to(message, "أنت مو محكوم عليك بتغيير الاسم حالياً يا غالي! 😉")
+        return
+
+    if text.lower() in ["ترجيع اسمي", "رجعت اسمي", "استرجاع اسمي"]:
+        key = (chat_id, user_id)
+        if key in pending_name_changes:
+            data = pending_name_changes[key]
+            orig_name = data['original_name']
+            req_title = data['required_title']
+            elapsed = time.time() - data['timestamp']
+            
+            if elapsed >= 300: # 5 دقائق
+                del pending_name_changes[key]
+                bot.reply_to(
+                    message,
+                    f"👑 **كفووو أوفيت بعهدك واستحملت الحكم 5 دقائق!** 🎉\n"
+                    f"هلق فيك ترجع اسمك الأصلي (**{orig_name}**) مرفوع الرأس بكل روح رياضية! 😂👏",
+                    parse_mode="Markdown"
+                )
+            else:
+                rem_mins = int((300 - elapsed) / 60) + 1
+                bot.reply_to(
+                    message,
+                    f"⏳ **لسا ما خلصت الـ 5 دقائق!**\n"
+                    f"باقي عليك تقريباً **{rem_mins} دقيقة** بالاسم الجديد (**{req_title}**)! اصبر يا كفو لا تستعجل 😂⏱️",
+                    parse_mode="Markdown"
+                )
+        else:
+            bot.reply_to(message, "ما عليك حكم تغيير اسم مسبق، اسمك الأصلي بأمان! 😄")
+        return
+
+    # ==================== لعبة "مين كفو" المطورة ====================
     if text in ["مين كفو", "مين كفو؟"]:
         min_kafo_games[chat_id] = {
             'host_id': user_id,
@@ -951,37 +1017,95 @@ def process_bot_commands(message):
             game['status'] = 'running'
             victim_id, victim_name = random.choice(participants)
 
-            # اختيار الحكم إما حكم فكاهي أو كتم لمدة 5 دقائق
-            outcomes = ["funny_judgment", "mute_penalty"]
-            chosen_outcome = random.choice(outcomes)
+            # توزيع فئات الأحكام المتنوعة والجديدة
+            outcome_type = random.choice(["name_change", "mute_penalty", "qa_question", "funny_judgment"])
 
-            if chosen_outcome == "mute_penalty":
+            if outcome_type == "name_change":
+                titles = [
+                    "أنا قرد 🐒",
+                    "سطل متة مغلية ☕",
+                    "مدمن شاورما المجموعات 🌯",
+                    "خزان أحزان الجروب 💔",
+                    "فرفوش الأصغر 🤖",
+                    "ضحية مين كفو 🔥",
+                    "مطيع البوت السعيد 👑",
+                    "الأرنب المفترس 🐰",
+                    "كائن فرفوشي غريب 👽"
+                ]
+                chosen_title = random.choice(titles)
+                pending_name_changes[(chat_id, victim_id)] = {
+                    'original_name': victim_name,
+                    'required_title': chosen_title,
+                    'timestamp': time.time()
+                }
+
+                bot.send_message(
+                    chat_id,
+                    f"🔥 **صدور الحكم في تحدي مين كفو!** 🔥\n\n"
+                    f"وقع الاختيار على الكفو: **[{victim_name}](tg://user?id={victim_id})** 🎯\n\n"
+                    f"🏷️ **الحكم:** غيّر اسمك الحسابي فوراً إلى: (**{chosen_title}**) أو كتم 5 دقائق!\n"
+                    f"بما إنك كفو.. بس تغير اسمك ارسل بالجروب كلمة: `غيرت اسمي` لحتى نأكدلك الاسم الجديد ويقولك البوت كفو! 😂\n"
+                    f"وبعد 5 دقائق ارسل `ترجيع اسمي` لترجع اسمك الأصلي (**{victim_name}**)!",
+                    parse_mode="Markdown"
+                )
+
+            elif outcome_type == "mute_penalty":
+                is_victim_admin = is_chat_admin(chat_id, victim_id)
+                mute_success = False
                 try:
-                    # كتم لمدة 5 دقائق (300 ثانية)
                     bot.restrict_chat_member(chat_id, victim_id, until_date=int(time.time()) + 300, can_send_messages=False)
+                    mute_success = True
+                except Exception:
+                    mute_success = False
+
+                if mute_success and not is_victim_admin:
                     bot.send_message(
                         chat_id,
                         f"🔥 **صدور الحكم في تحدي مين كفو!** 🔥\n\n"
                         f"وقع الاختيار على الكفو: **[{victim_name}](tg://user?id={victim_id})** 🎯\n\n"
-                        f"🤐 **الحكم:** تم كتمك لمدة **5 دقائق** كاملاً! هسسس ولا كلمة 😂🤫",
+                        f"🤐 **الحكم:** تم كتمك لمدة **5 دقائق** كاملة! هسسس ولا كلمة للـ 5 دقائق القادمة 😂🤫",
                         parse_mode="Markdown"
                     )
-                except Exception as e:
-                    # في حال عدم وجود صلاحيات كافية لكتم المشرفين أو الأعضاء
-                    funny_judgments = [
-                        f"👑 **{victim_name}** كفو ونص! بس حكمنا عليك تغني للجروب بصمة صوت فوراً! 🎤",
-                        f"😜 **{victim_name}** طلعت مو كفو اليوم! عليك تعترف بأكبر مصيبة عملتها بدراستك 😂",
-                        f"🔥 **{victim_name}** الحكم عليك تبعث 100 ليرة وهمية لأول شخص بيرد عليك!"
+                else:
+                    admin_mute_replies = [
+                        f"🔥 **صدور الحكم في تحدي مين كفو!** 🔥\n\nوقع الاختيار على المشرف الكفو: **[{victim_name}](tg://user?id={victim_id})** 🎯\n\n🤐 **الحكم:** حكمتك تبلي! حتى لو إنك مشرف ورتبتك مالية الشاشة، سكر فمك 5 دقائق عالهادئ! ممنوع تكتب كلمة لـ 5 دقائق وإلا بتاكل طرد معنوي 😂🤫!",
+                        f"🔥 **صدور الحكم في تحدي مين كفو!** 🔥\n\nوقع الاختيار على: **[{victim_name}](tg://user?id={victim_id})** 🎯\n\n🤐 **الحكم:** حكمتك تبلي صامت 5 دقائق! غطّي وشك باللحاف وسكر المايك، القانون فوق الجميع حتى المشرفين 😂!",
+                        f"🔥 **صدور الحكم في تحدي مين كفو!** 🔥\n\nوقع الاختيار على: **[{victim_name}](tg://user?id={victim_id})** 🎯\n\n🤫 **الحكم:** صمت انتخابي إجباري لمدة 5 دقائق! التزم بالهدوء التام ورجينا كرمك بالسكوت 😂!"
                     ]
-                    bot.send_message(chat_id, f"🔥 **صدور الحكم في تحدي مين كفو!** 🔥\n\nوقع الاختيار على: **{victim_name}**\n\n{random.choice(funny_judgments)}")
+                    bot.send_message(chat_id, random.choice(admin_mute_replies), parse_mode="Markdown")
+
+            elif outcome_type == "qa_question":
+                mandatory_questions = [
+                    "من هو أكثر عضو بتستسقل دمه بالجروب وبتتمنى تحظره فوراً وبدون مجاملة؟ 😳🔥",
+                    "اعترف بأكبر كذبة كذبتها على أعضاء الجروب وما حدى كشفك فيها لليوم! 🤐😂",
+                    "لو خيروك بين أن تعزم الجروب كله على شاورما أو تطلع من الجروب فوراً، شو بتختار؟ 🌯💨",
+                    "ما هو أكثر تصرف غبي وسخيف قمت به هذا الأسبوع وعامل حالك نسيانه؟ 🤡",
+                    "من هو العضو اللي بيمشيك على العجين وما بتلخبطوش بالجروب؟ 😏❤️",
+                    "أرسل بصمة صوت بالجروب وأنت عم تقرأ أحدث رسالة بالجروب بلغة غريبة مضحكة 🎤"
+                ]
+                chosen_q = random.choice(mandatory_questions)
+                bot.send_message(
+                    chat_id,
+                    f"🔥 **صدور الحكم في تحدي مين كفو!** 🔥\n\n"
+                    f"وقع الاختيار على الكفو: **[{victim_name}](tg://user?id={victim_id})** 🎯\n\n"
+                    f"❓ **الحكم الإجباري:** عليك الإجابة فوراً بالدردشة وبكل صراحة على السؤال التالي:\n\n👉 **{chosen_q}**",
+                    parse_mode="Markdown"
+                )
+
             else:
                 funny_judgments = [
                     f"👑 **[{victim_name}](tg://user?id={victim_id})** أنت الكفو! ولكن الحكم عليك: اعترف بأحرج موقف صار معك بحياتك فوراً 😂",
                     f"😜 **[{victim_name}](tg://user?id={victim_id})** طلعت مو كفو هالمرة! الحكم: غير صورتك الشخصية لمدة يوم كامل أو اعزم الجروب على شاورما 🌯",
                     f"🔥 **[{victim_name}](tg://user?id={victim_id})** الحكم فكاهي وناقد: اعترف مين أكثر عضو بتموت منه بالجروب وبدون مجاملة! 🤫",
-                    f"🎭 **[{victim_name}](tg://user?id={victim_id})** حكم القدر: أرسل بصمة صوت وأنت عم تغني أغنية قديمة وشوف تقييم الجروب إلك 🎤"
+                    f"🎭 **[{victim_name}](tg://user?id={victim_id})** حكم القدر: أرسل بصمة صوت وأنت عم تغني أغنية قديمة وشوف تقييم الجروب إلك 🎤",
+                    f"🤡 **[{victim_name}](tg://user?id={victim_id})** حكم الهيبة: كرر عبارة (أنا المحكوم عليه وفرفوش تاج رأسي) 3 مرات بالدردشة فوراً! 😂",
+                    f"🌯 **[{victim_name}](tg://user?id={victim_id})** حكم الجود والكرم: اهدي أحلى صنف بالمتجر لأول عضو بيرد عليك بالجروب! 🎁",
+                    f"📸 **[{victim_name}](tg://user?id={victim_id})** الحكم الساخر: ارسل ملصق مضحك بيعبر عن شكل وجهك لما تفوت على الامتحان مو دارس شيء! 🤡🏼",
+                    f"💸 **[{victim_name}](tg://user?id={victim_id})** حكم الميزانية: حوّل 100 ليرة وهمية لأفقر عضو بالجروب هلق! 💰✨",
+                    f"🎤 **[{victim_name}](tg://user?id={victim_id})** حكم الطرب: ارسل بصمة صوت مدتها 10 ثواني وأنت عم تزغرد للجروب! 💃🎶",
+                    f"🚨 **[{victim_name}](tg://user?id={victim_id})** حكم الاعتراف: اعترف شو أول فكرة أجت ببالك لما شفت حالك انخترت بالتحدي؟ هل كنت خائف؟ 😂"
                 ]
-                bot.send_message(chat_id, f"🔥 **صدور الحكم في تحدي مين كفو!** 🔥\n\n{random.choice(funny_judgments)}", parse_mode="Markdown")
+                bot.send_message(chat_id, random.choice(funny_judgments), parse_mode="Markdown")
 
             del min_kafo_games[chat_id]
             return
@@ -1940,73 +2064,13 @@ def handle_admin_actions(call):
         admins_list = [f"المالك الأساسي: `{ADMIN_ID}`"]
         for r in rows:
             if r[0] != ADMIN_ID:
-                admins_list.append(f"أدمن: `{r[0]}`")
-        send_large_text(chat_id, "👥 **سجل الأدمنية المخولين:**", admins_list)
+                admins_list.append(f"• `{r[0]}`")
+        send_large_text(chat_id, "👥 **قائمة الأدمنية المضافين:**", admins_list)
         return
 
-    if call.data == "admin_log_store":
-        conn = sqlite3.connect("bot_data.db")
-        c = conn.cursor()
-        c.execute("SELECT item_name, price FROM store")
-        items = [f"السلعة: `{row[0]}` | السعر: `{row[1]}` ليرة" for row in c.fetchall()]
-        conn.close()
-        send_large_text(chat_id, "🛒 **سجل أصناف المتجر والمطعم:**", items)
-        return
-
-    if call.data == "admin_log_questions":
-        conn = sqlite3.connect("bot_data.db")
-        c = conn.cursor()
-        c.execute("SELECT id, question FROM questions")
-        items = [f"ID `{row[0]}`: {row[1]}" for row in c.fetchall()]
-        conn.close()
-        send_large_text(chat_id, "❓ **سجل الأسئلة:**", items)
-        return
-
-    if call.data == "admin_log_riddles":
-        conn = sqlite3.connect("bot_data.db")
-        c = conn.cursor()
-        c.execute("SELECT id, question, answer FROM riddles")
-        items = [f"ID `{row[0]}`: {row[1]} 👈 الإجابة: `{row[2]}`" for row in c.fetchall()]
-        conn.close()
-        send_large_text(chat_id, "🧩 **سجل الحزازير:**", items)
-        return
-
-    if call.data == "admin_log_series":
-        conn = sqlite3.connect("bot_data.db")
-        c = conn.cursor()
-        c.execute("SELECT id, question, answer FROM series_questions")
-        items = [f"ID `{row[0]}`: {row[1]} 👈 المسلسل: `{row[2]}`" for row in c.fetchall()]
-        conn.close()
-        send_large_text(chat_id, "📺 **سجل مسلسلات خمن:**", items)
-        return
-
-    if call.data == "admin_log_crimes":
-        conn = sqlite3.connect("bot_data.db")
-        c = conn.cursor()
-        c.execute("SELECT id, killer, suspects FROM crime_stories")
-        items = [f"قضية `{row[0]}` 👈 القاتل الصحيح: **{row[1]}** | المشتبه بهم: ({row[2]})" for row in c.fetchall()]
-        conn.close()
-        send_large_text(chat_id, "🎯 **سجل الإجابات الصحيحة للجرائم:**", items)
-        return
-
-    if call.data == "admin_del_q":
-        admin_states[user_id] = "wait_del_q_id"
-        bot.send_message(chat_id, "أرسل ID السؤال المراد حذفه:")
-        return
-
-    if call.data == "admin_del_rep":
-        admin_states[user_id] = "wait_del_rep_id"
-        bot.send_message(chat_id, "أرسل ID الرد المراد حذفه:")
-        return
-
-    if call.data == "admin_del_crime":
-        admin_states[user_id] = "wait_del_crime_id"
-        bot.send_message(chat_id, "أرسل ID قصة الجريمة المراد حذفها:")
-        return
-
-    if call.data == "admin_del_riddle":
-        admin_states[user_id] = "wait_del_riddle_id"
-        bot.send_message(chat_id, "أرسل ID الحزورة المراد حذفها:")
+    if call.data == "admin_add_store_item":
+        admin_states[user_id] = "wait_add_store_item"
+        bot.send_message(chat_id, "أرسل اسم الصنف والسعر مفصولين بـ - (مثال: شاورما - 100):")
         return
 
     if call.data == "admin_del_store_item":
@@ -2014,286 +2078,293 @@ def handle_admin_actions(call):
         bot.send_message(chat_id, "أرسل اسم الصنف المراد حذفه من المتجر:")
         return
 
-    if call.data == "admin_del_series":
-        admin_states[user_id] = "wait_del_series_id"
-        bot.send_message(chat_id, "أرسل ID المسلسل المراد حذفه:")
-        return
-
-    if call.data == "admin_add_store_item":
-        admin_states[user_id] = "wait_add_store_item"
-        bot.send_message(chat_id, "أرسل اسم الصنف والسعر مفصولين بـ `-`\nمثال: `شاورما كينج - 150`", parse_mode="Markdown")
-        return
-
     if call.data == "admin_add_crime":
         admin_states[user_id] = "wait_add_crime"
-        bot.send_message(chat_id, "أرسل الجريمة بصيغة:\n`القصة | اسم القاتل | المشتبه بهم`", parse_mode="Markdown")
+        bot.send_message(chat_id, "أرسل القصة والقاتل والمشتبه بهم بالترتيب مفصولين بـ | (مثال: القصة... | فادي | فادي، سامر، رامي):")
+        return
+
+    if call.data == "admin_del_crime":
+        admin_states[user_id] = "wait_del_crime"
+        bot.send_message(chat_id, "أرسل ID القصة المراد حذفها:")
         return
 
     if call.data == "admin_add_riddle":
         admin_states[user_id] = "wait_add_riddle"
-        bot.send_message(chat_id, "أرسل الحزورة بصيغة:\n`السؤال | الإجابة`", parse_mode="Markdown")
+        bot.send_message(chat_id, "أرسل الحزورة والإجابة مفصولين بـ | (مثال: ما هو الشيء... | الصدى):")
+        return
+
+    if call.data == "admin_del_riddle":
+        admin_states[user_id] = "wait_del_riddle"
+        bot.send_message(chat_id, "أرسل ID الحزورة المراد حذفها:")
         return
 
     if call.data == "admin_add_q":
         admin_states[user_id] = "wait_add_q"
-        bot.send_message(chat_id, "أرسل نص السؤال المراد إضافته:")
+        bot.send_message(chat_id, "أرسل السؤال المراد إضافته إلى أسئلة اسألني:")
+        return
+
+    if call.data == "admin_del_q":
+        admin_states[user_id] = "wait_del_q"
+        bot.send_message(chat_id, "أرسل ID السؤال المراد حذفه:")
         return
 
     if call.data == "admin_add_rep":
-        admin_states[user_id] = "wait_add_rep_keyword"
-        bot.send_message(chat_id, "📝 **أرسل الكلمة المفتاحية أولاً (التي سيرد عليها البوت):**", parse_mode="Markdown")
+        admin_states[user_id] = "wait_add_rep"
+        bot.send_message(chat_id, "أرسل الكلمة المفتاحية والرد مفصولين بـ | (مثال: هلا | أهلاً وسهلاً بك):")
+        return
+
+    if call.data == "admin_del_rep":
+        admin_states[user_id] = "wait_del_rep"
+        bot.send_message(chat_id, "أرسل ID الرد المخصص المراد حذفه:")
         return
 
     if call.data == "admin_add_series":
         admin_states[user_id] = "wait_add_series"
-        bot.send_message(chat_id, "أرسل السؤال بصيغة:\n`السؤال | اسم المسلسل`", parse_mode="Markdown")
+        bot.send_message(chat_id, "أرسل سؤال المسلسل والإجابة مفصولين بـ | (مثال: مسلسل ضيعة ضايعة... | ضيعة ضايعة):")
+        return
+
+    if call.data == "admin_del_series":
+        admin_states[user_id] = "wait_del_series"
+        bot.send_message(chat_id, "أرسل ID سؤال المسلسل المراد حذفه:")
+        return
+
+    if call.data == "admin_log_store":
+        conn = sqlite3.connect("bot_data.db")
+        c = conn.cursor()
+        c.execute("SELECT item_name, price FROM store")
+        rows = c.fetchall()
+        conn.close()
+        items = [f"`{name}` 👈 {price} ليرة" for name, price in rows]
+        send_large_text(chat_id, "🛒 **سجل أصناف المتجر والمطعم:**", items)
+        return
+
+    if call.data == "admin_log_questions":
+        conn = sqlite3.connect("bot_data.db")
+        c = conn.cursor()
+        c.execute("SELECT id, question FROM questions")
+        rows = c.fetchall()
+        conn.close()
+        items = [f"ID `{qid}`: {qtext}" for qid, qtext in rows]
+        send_large_text(chat_id, "❓ **سجل أسئلة اسألني العامة:**", items)
+        return
+
+    if call.data == "admin_log_riddles":
+        conn = sqlite3.connect("bot_data.db")
+        c = conn.cursor()
+        c.execute("SELECT id, question, answer FROM riddles")
+        rows = c.fetchall()
+        conn.close()
+        items = [f"ID `{rid}`: {rq} 👈 (الجواب: {ra})" for rid, rq, ra in rows]
+        send_large_text(chat_id, "🧩 **سجل الحزازير:**", items)
+        return
+
+    if call.data == "admin_log_series":
+        conn = sqlite3.connect("bot_data.db")
+        c = conn.cursor()
+        c.execute("SELECT id, question, answer FROM series_questions")
+        rows = c.fetchall()
+        conn.close()
+        items = [f"ID `{sid}`: {sq} 👈 (الجواب: {sa})" for sid, sq, sa in rows]
+        send_large_text(chat_id, "📺 **سجل أسئلة المسلسلات:**", items)
+        return
+
+    if call.data == "admin_log_crimes":
+        conn = sqlite3.connect("bot_data.db")
+        c = conn.cursor()
+        c.execute("SELECT id, killer, suspects FROM crime_stories")
+        rows = c.fetchall()
+        conn.close()
+        items = [f"ID `{cid}` | القاتل: `{killer}` | المشتبه بهم: {suspects}" for cid, killer, suspects in rows]
+        send_large_text(chat_id, "🎯 **سجل قضايا الجرائم والحلول:**", items)
         return
 
     if call.data == "admin_leave_grp":
         admin_states[user_id] = "wait_leave_grp_id"
-        bot.send_message(chat_id, "أرسل آيدي (ID) المجموعة المراد المغادرة منها:")
+        bot.send_message(chat_id, "أرسل ID المجموعة المراد أن يغادرها البوت:")
         return
 
-# ==================== معالجة مدخلات الأدمن الإضافية والكاملة ====================
 def handle_admin_inputs(message):
     user_id = message.from_user.id
     chat_id = message.chat.id
     text = (message.text or message.caption or "").strip()
-    st = admin_states.get(user_id)
+    state = admin_states.pop(user_id, None)
 
-    # المرحلة 1: الكلمة المفتاحية
-    if st == "wait_add_rep_keyword":
-        if text:
-            admin_states[user_id] = {"state": "wait_add_rep_content", "keyword": text}
-            bot.reply_to(
-                message, 
-                f"✅ تم تحديد الكلمة: `{text}`\n\n"
-                "🎯 **الآن أرسل الردود التي تريد إضافتها لها:**\n"
-                "• يمكنك إرسال (نص، صورة، مقطع فيديو، صوتية، بصمة صوت، أو ملصق).\n"
-                "• يمكنك إرسال **أكثر من رد متتالي** لنفس الكلمة!\n"
-                "• عند الانتهاء أرسل كلمة **تم** للختام.",
-                parse_mode="Markdown"
-            )
+    if not state:
+        return
+
+    if isinstance(state, dict) and state.get("state") == "wait_custom_grp_msg":
+        target_chat_id = state.get("target_chat_id")
+        try:
+            if message.content_type == 'text':
+                bot.send_message(target_chat_id, text)
+            elif message.content_type == 'photo':
+                bot.send_photo(target_chat_id, message.photo[-1].file_id, caption=text)
+            elif message.content_type == 'video':
+                bot.send_video(target_chat_id, message.video.file_id, caption=text)
+            elif message.content_type == 'sticker':
+                bot.send_sticker(target_chat_id, message.sticker.file_id)
+            bot.reply_to(message, "✅ تم إرسال الرسالة إلى المجموعة بنجاح!")
+        except Exception as e:
+            bot.reply_to(message, f"❌ تعذر الإرسال: {e}")
+        return
+
+    conn = sqlite3.connect("bot_data.db")
+    c = conn.cursor()
+
+    if state == "wait_add_admin_id":
+        if text.isdigit():
+            new_admin = int(text)
+            c.execute("INSERT OR IGNORE INTO admins VALUES (?)", (new_admin,))
+            conn.commit()
+            bot.reply_to(message, f"✅ تم رفعه أدمن بالبوت بنجاح: `{new_admin}`", parse_mode="Markdown")
         else:
-            bot.reply_to(message, "❌ يرجى إرسال الكلمة بنص واضح.")
-        return
+            bot.reply_to(message, "❌ يرجى إدخال ID بصيغة أرقام فقط.")
 
-    # المرحلة 2: استقبال الردود المتعددة بنفس الوقت للكلمة المحفوظة
-    if isinstance(st, dict) and st.get("state") == "wait_add_rep_content":
-        keyword = st.get("keyword")
-        if text.lower() in ["تم", "تم الانتهاء", "خلاص"]:
-            admin_states.pop(user_id, None)
-            bot.reply_to(message, f"🎉 **تم الانتهاء من إضافة جميع الردود للكلمة (`{keyword}`) بنجاح!**", parse_mode="Markdown")
-            return
-
-        media_type = 'text'
-        file_id = None
-        response_text = text
-
-        if message.content_type == 'photo':
-            media_type = 'photo'
-            file_id = message.photo[-1].file_id
-            response_text = message.caption or ''
-        elif message.content_type == 'video':
-            media_type = 'video'
-            file_id = message.video.file_id
-            response_text = message.caption or ''
-        elif message.content_type == 'audio':
-            media_type = 'audio'
-            file_id = message.audio.file_id
-            response_text = message.caption or ''
-        elif message.content_type == 'voice':
-            media_type = 'voice'
-            file_id = message.voice.file_id
-            response_text = ''
-        elif message.content_type == 'sticker':
-            media_type = 'sticker'
-            file_id = message.sticker.file_id
-            response_text = ''
-
-        conn = sqlite3.connect("bot_data.db")
-        c = conn.cursor()
-        c.execute("INSERT INTO custom_replies (keyword, response, media_type, file_id) VALUES (?, ?, ?, ?)", (keyword, response_text, media_type, file_id))
-        conn.commit()
+    elif state == "wait_fake_bal_userid":
+        admin_states[user_id] = {"state": "wait_fake_bal_amount", "target_uid": text}
+        bot.reply_to(message, "أرسل الآن المبلغ المراد إضافته كـ رصيد وهمي:")
         conn.close()
-        bot.reply_to(message, f"➕ تم إضافة هذا الرد للكلمة (`{keyword}`). أرسل رداً آخر أو أرسل **تم** للختام.")
         return
 
-    # باقي حالات الأدمن
-    if st == "wait_add_admin_id" and text.isdigit():
-        new_admin = int(text)
-        conn = sqlite3.connect("bot_data.db")
-        c = conn.cursor()
-        c.execute("INSERT OR IGNORE INTO admins VALUES (?)", (new_admin,))
+    elif isinstance(state, dict) and state.get("state") == "wait_fake_bal_amount":
+        target_uid = state.get("target_uid")
+        if target_uid.isdigit() and text.isdigit():
+            update_balance(int(target_uid), int(text))
+            bot.reply_to(message, f"✅ تم إضافة `{text}` ليرة وهمية للمستخدم `{target_uid}` بنجاح!", parse_mode="Markdown")
+        else:
+            bot.reply_to(message, "❌ بيانات غير صحيحة.")
+
+    elif state == "wait_add_store_item":
+        if "-" in text:
+            parts = text.split("-", 1)
+            item_name = parts[0].strip()
+            price = parts[1].strip()
+            if price.isdigit():
+                c.execute("INSERT OR REPLACE INTO store VALUES (?, ?)", (item_name, int(price)))
+                conn.commit()
+                bot.reply_to(message, f"✅ تم إضافة الصنف ({item_name}) بسعر {price} ليرة.")
+            else:
+                bot.reply_to(message, "❌ السعر يجب أن يكون رقمي.")
+        else:
+            bot.reply_to(message, "❌ الصيغة غير صحيحة، يرجى كتابة (الاسم - السعر).")
+
+    elif state == "wait_del_store_item":
+        c.execute("DELETE FROM store WHERE item_name LIKE ?", (f"%{text}%",))
         conn.commit()
-        conn.close()
-        admin_states.pop(user_id, None)
-        bot.reply_to(message, f"✅ تم إضافة المستخدم `{new_admin}` كـ أدمن بنجاح!", parse_mode="Markdown")
-        return
+        bot.reply_to(message, f"✅ تم حذف الصنف ({text}) من المتجر إذا كان موجوداً.")
 
-    if st == "wait_fake_bal_userid" and text.isdigit():
-        target_uid = int(text)
-        admin_states[user_id] = {"state": "wait_fake_bal_amount", "target_uid": target_uid}
-        bot.reply_to(message, f"أرسل الآن المبلغ المراد إضافته لـ `{target_uid}`:", parse_mode="Markdown")
-        return
-
-    if isinstance(st, dict) and st.get("state") == "wait_fake_bal_amount" and text.isdigit():
-        amt = int(text)
-        t_uid = st.get("target_uid")
-        update_balance(t_uid, amt)
-        admin_states.pop(user_id, None)
-        bot.reply_to(message, f"✅ تم إضافة {amt} ليرة وهمية لرصيد `{t_uid}` بنجاح!", parse_mode="Markdown")
-        return
-
-    if st == "wait_add_store_item" and "-" in text:
-        p_name, p_price = text.split("-", 1)
-        if p_price.strip().isdigit():
-            conn = sqlite3.connect("bot_data.db")
-            c = conn.cursor()
-            c.execute("INSERT OR REPLACE INTO store VALUES (?, ?)", (p_name.strip(), int(p_price.strip())))
-            conn.commit()
-            conn.close()
-            admin_states.pop(user_id, None)
-            bot.reply_to(message, f"✅ تم إضافة الصنف `{p_name.strip()}` بسعر {p_price.strip()} ليرة!", parse_mode="Markdown")
-            return
-
-    if st == "wait_del_store_item":
-        conn = sqlite3.connect("bot_data.db")
-        c = conn.cursor()
-        c.execute("DELETE FROM store WHERE item_name = ?", (text,))
-        conn.commit()
-        conn.close()
-        admin_states.pop(user_id, None)
-        bot.reply_to(message, f"✅ تم حذف الصنف `{text}` من المتجر بنجاح!")
-        return
-
-    if st == "wait_add_crime" and "|" in text:
+    elif state == "wait_add_crime":
         parts = text.split("|")
-        if len(parts) == 3:
-            conn = sqlite3.connect("bot_data.db")
-            c = conn.cursor()
-            c.execute("INSERT INTO crime_stories (story, killer, suspects) VALUES (?, ?, ?)", (parts[0].strip(), parts[1].strip(), parts[2].strip()))
+        if len(parts) >= 3:
+            story = parts[0].strip()
+            killer = parts[1].strip()
+            suspects = parts[2].strip()
+            c.execute("INSERT INTO crime_stories (story, killer, suspects) VALUES (?, ?, ?)", (story, killer, suspects))
             conn.commit()
-            conn.close()
-            admin_states.pop(user_id, None)
             bot.reply_to(message, "✅ تم إضافة قصة الجريمة بنجاح!")
-            return
+        else:
+            bot.reply_to(message, "❌ الصيغة غير صحيحة، استخدم الفاصل |")
 
-    if st == "wait_del_crime" and text.isdigit():
-        conn = sqlite3.connect("bot_data.db")
-        c = conn.cursor()
-        c.execute("DELETE FROM crime_stories WHERE id = ?", (int(text),))
-        conn.commit()
-        conn.close()
-        admin_states.pop(user_id, None)
-        bot.reply_to(message, f"✅ تم حذف قضية الجريمة ID `{text}` بنجاح!")
-        return
+    elif state == "wait_del_crime":
+        if text.isdigit():
+            c.execute("DELETE FROM crime_stories WHERE id = ?", (int(text),))
+            conn.commit()
+            bot.reply_to(message, f"✅ تم حذف الجريمة رقم `{text}`.", parse_mode="Markdown")
+        else:
+            bot.reply_to(message, "❌ يرجى أدخال ID رقمي.")
 
-    if st == "wait_add_riddle" and "|" in text:
-        parts = text.split("|", 1)
-        conn = sqlite3.connect("bot_data.db")
-        c = conn.cursor()
-        c.execute("INSERT INTO riddles (question, answer) VALUES (?, ?)", (parts[0].strip(), parts[1].strip()))
-        conn.commit()
-        conn.close()
-        admin_states.pop(user_id, None)
-        bot.reply_to(message, "✅ تم إضافة الحزورة بنجاح!")
-        return
+    elif state == "wait_add_riddle":
+        parts = text.split("|")
+        if len(parts) >= 2:
+            q = parts[0].strip()
+            a = parts[1].strip()
+            c.execute("INSERT INTO riddles (question, answer) VALUES (?, ?)", (q, a))
+            conn.commit()
+            bot.reply_to(message, "✅ تم إضافة الحزورة بنجاح!")
+        else:
+            bot.reply_to(message, "❌ الصيغة غير صحيحة، استخدم الفاصل |")
 
-    if st == "wait_del_riddle" and text.isdigit():
-        conn = sqlite3.connect("bot_data.db")
-        c = conn.cursor()
-        c.execute("DELETE FROM riddles WHERE id = ?", (int(text),))
-        conn.commit()
-        conn.close()
-        admin_states.pop(user_id, None)
-        bot.reply_to(message, f"✅ تم حذف الحزورة ID `{text}` بنجاح!")
-        return
+    elif state == "wait_del_riddle":
+        if text.isdigit():
+            c.execute("DELETE FROM riddles WHERE id = ?", (int(text),))
+            conn.commit()
+            bot.reply_to(message, f"✅ تم حذف الحزورة رقم `{text}`.", parse_mode="Markdown")
+        else:
+            bot.reply_to(message, "❌ يرجى إدخال ID رقمي.")
 
-    if st == "wait_add_q":
-        conn = sqlite3.connect("bot_data.db")
-        c = conn.cursor()
+    elif state == "wait_add_q":
         c.execute("INSERT INTO questions (question) VALUES (?)", (text,))
         conn.commit()
-        conn.close()
-        admin_states.pop(user_id, None)
         bot.reply_to(message, "✅ تم إضافة السؤال بنجاح!")
-        return
 
-    if st == "wait_del_q" and text.isdigit():
-        conn = sqlite3.connect("bot_data.db")
-        c = conn.cursor()
-        c.execute("DELETE FROM questions WHERE id = ?", (int(text),))
-        conn.commit()
-        conn.close()
-        admin_states.pop(user_id, None)
-        bot.reply_to(message, f"✅ تم حذف السؤال ID `{text}` بنجاح!")
-        return
+    elif state == "wait_del_q":
+        if text.isdigit():
+            c.execute("DELETE FROM questions WHERE id = ?", (int(text),))
+            conn.commit()
+            bot.reply_to(message, f"✅ تم حذف السؤال رقم `{text}`.", parse_mode="Markdown")
+        else:
+            bot.reply_to(message, "❌ يرجى إدخال ID رقمي.")
 
-    if st == "wait_add_series" and "|" in text:
-        parts = text.split("|", 1)
-        conn = sqlite3.connect("bot_data.db")
-        c = conn.cursor()
-        c.execute("INSERT INTO series_questions (question, answer) VALUES (?, ?)", (parts[0].strip(), parts[1].strip()))
-        conn.commit()
-        conn.close()
-        admin_states.pop(user_id, None)
-        bot.reply_to(message, "✅ تم إضافة سؤال المسلسل بنجاح!")
-        return
-
-    if st == "wait_del_series" and text.isdigit():
-        conn = sqlite3.connect("bot_data.db")
-        c = conn.cursor()
-        c.execute("DELETE FROM series_questions WHERE id = ?", (int(text),))
-        conn.commit()
-        conn.close()
-        admin_states.pop(user_id, None)
-        bot.reply_to(message, f"✅ تم حذف المسلسل ID `{text}` بنجاح!")
-        return
-
-    if st == "wait_del_rep_id" and text.isdigit():
-        conn = sqlite3.connect("bot_data.db")
-        c = conn.cursor()
-        c.execute("DELETE FROM custom_replies WHERE id = ?", (int(text),))
-        conn.commit()
-        conn.close()
-        admin_states.pop(user_id, None)
-        bot.reply_to(message, f"✅ تم حذف الرد ID `{text}` بنجاح!")
-        return
-
-    if st == "wait_leave_grp_id":
-        try:
-            target_gid = int(text)
-            bot.leave_chat(target_gid)
-            bot.reply_to(message, f"✅ تم المغادرة من المجموعة `{target_gid}` بنجاح!", parse_mode="Markdown")
-        except Exception as e:
-            bot.reply_to(message, f"❌ فشلت المغادرة: {e}")
-        admin_states.pop(user_id, None)
-        return
-
-    if isinstance(st, dict) and st.get("state") == "wait_custom_grp_msg":
-        t_gid = st.get("target_chat_id")
-        try:
-            if message.content_type == 'photo':
-                bot.send_photo(t_gid, message.photo[-1].file_id, caption=message.caption or '')
+    elif state == "wait_add_rep":
+        parts = text.split("|")
+        if len(parts) >= 2:
+            kw = parts[0].strip()
+            resp = parts[1].strip()
+            m_type = 'text'
+            f_id = None
+            if message.content_type == 'sticker':
+                m_type = 'sticker'
+                f_id = message.sticker.file_id
+            elif message.content_type == 'photo':
+                m_type = 'photo'
+                f_id = message.photo[-1].file_id
             elif message.content_type == 'video':
-                bot.send_video(t_gid, message.video.file_id, caption=message.caption or '')
-            elif message.content_type == 'sticker':
-                bot.send_sticker(t_gid, message.sticker.file_id)
-            else:
-                bot.send_message(t_gid, text)
-            bot.reply_to(message, f"✅ تم إرسال الرسالة إلى المجموعة `{t_gid}` بنجاح!")
-        except Exception as e:
-            bot.reply_to(message, f"❌ تعذر إرسال الرسالة: {e}")
-        admin_states.pop(user_id, None)
-        return
+                m_type = 'video'
+                f_id = message.video.file_id
+            c.execute("INSERT INTO custom_replies (keyword, response, media_type, file_id) VALUES (?, ?, ?, ?)", (kw, resp, m_type, f_id))
+            conn.commit()
+            bot.reply_to(message, f"✅ تم إضافة الرد المخصص للكلمة ({kw}) بنجاح!")
+        else:
+            bot.reply_to(message, "❌ الصيغة غير صحيحة، استخدم الفاصل | بين الكلمة والرد.")
 
-# ==================== التشغيل المستمر للبوت ====================
-if __name__ == '__main__':
+    elif state == "wait_del_rep":
+        if text.isdigit():
+            c.execute("DELETE FROM custom_replies WHERE id = ?", (int(text),))
+        else:
+            c.execute("DELETE FROM custom_replies WHERE keyword = ?", (text,))
+        conn.commit()
+        bot.reply_to(message, f"✅ تم حذف الرد المحدد بنجاح!")
+
+    elif state == "wait_add_series":
+        parts = text.split("|")
+        if len(parts) >= 2:
+            sq = parts[0].strip()
+            sa = parts[1].strip()
+            c.execute("INSERT INTO series_questions (question, answer) VALUES (?, ?)", (sq, sa))
+            conn.commit()
+            bot.reply_to(message, "✅ تم إضافة سؤال المسلسل بنجاح!")
+        else:
+            bot.reply_to(message, "❌ الصيغة غير صحيحة، استخدم الفاصل |")
+
+    elif state == "wait_del_series":
+        if text.isdigit():
+            c.execute("DELETE FROM series_questions WHERE id = ?", (int(text),))
+            conn.commit()
+            bot.reply_to(message, f"✅ تم حذف سؤال المسلسل رقم `{text}`.", parse_mode="Markdown")
+        else:
+            bot.reply_to(message, "❌ يرجى إدخال ID رقمي.")
+
+    elif state == "wait_leave_grp_id":
+        if text.startswith("-") or text.isdigit():
+            try:
+                bot.leave_chat(int(text))
+                bot.reply_to(message, f"✅ تم مغادرة المجموعة `{text}` بنجاح!", parse_mode="Markdown")
+            except Exception as e:
+                bot.reply_to(message, f"❌ تعذر المغادرة: {e}")
+
+    conn.close()
+
+if __name__ == "__main__":
     keep_alive()
-    print("🤖 البوت يعمل الآن بنجاح وكافة الميزات مفعلة ومحفوظة...")
-    while True:
-        try:
-            bot.infinity_polling(timeout=60, long_polling_timeout=30)
-        except Exception as e:
-            time.sleep(3)
+    print("🤖 Bot started successfully...")
+    bot.infinity_polling(skip_pending=True)
