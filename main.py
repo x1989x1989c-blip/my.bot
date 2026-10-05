@@ -9,10 +9,8 @@ import urllib.parse
 import telebot
 from telebot import types
 import yt_dlp
-
 try:
     from keep_alive import keep_alive
-    keep_alive()
 except ImportError:
     def keep_alive():
         pass
@@ -23,10 +21,11 @@ ADMIN_ID = 8577656131
 
 bot = telebot.TeleBot(TOKEN)
 
-# هياكل بيانات لتتبع العقوبات المؤقتة وحالات الأدمن
+# هياكل بيانات لتتبع العقوبات المؤقتة والألعاب
 muted_5min_users = {}       # (chat_id, user_id) -> expire_time
 name_penalties = {}         # (chat_id, user_id) -> {'target_name': str, 'expire_time': int}
 embarrassing_penalties = {} # (chat_id, user_id) -> {'user_name': str, 'question': str, 'msg_id': int}
+farfoush_challenge_users = {} # user_id -> True
 
 # ==================== نظام الحذف المتطور والآمن ====================
 def safe_delete_message(chat_id, message_id):
@@ -44,7 +43,8 @@ def init_db():
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
-            balance INTEGER DEFAULT 0
+            balance INTEGER DEFAULT 0,
+            received_gift INTEGER DEFAULT 0
         )
     """)
     cursor.execute("""
@@ -169,11 +169,6 @@ def init_db():
             rules TEXT
         )
     """)
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS gifts_claimed (
-            user_id INTEGER PRIMARY KEY
-        )
-    """)
 
     try:
         cursor.execute("ALTER TABLE custom_replies ADD COLUMN media_type TEXT DEFAULT 'text'")
@@ -181,6 +176,10 @@ def init_db():
         pass
     try:
         cursor.execute("ALTER TABLE custom_replies ADD COLUMN file_id TEXT")
+    except:
+        pass
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN received_gift INTEGER DEFAULT 0")
     except:
         pass
 
@@ -253,98 +252,98 @@ def init_db():
         for q in questions_list:
             cursor.execute("INSERT INTO questions (question) VALUES (?)", (q,))
 
-    # 2. أسئلة صراحة الموسعة (إضافة 50 سؤالاً جديداً ومميزاً)
-    saraha_list = [
-        "ما هي أكبر غلطة ارتكبتها بحق شخص وما زلت نادماً عليها؟",
-        "هل سبق لك أن راقبت حساب شخص بعد الفراق أو الخصام؟",
-        "ما هي الصفة التي تكرها في نفسك وتتمنى تغييرها فوراً؟",
-        "هل تفضل العقل أم العاطفة في اتخاذ قراراتك المصيرية؟",
-        "ما هو السر الذي لم تقله لأقرب شخص إليك حتى اليوم؟",
-        "هل اعتذرت يوماً لشخص رغم أنك تدرك أنك لست المخطئ فقط لكي لا تخسره؟",
-        "ما هو التصرف الذي يقضي على ثقتك بالشخص الآخر فوراً؟",
-        "هل شعرت يوماً بالغيرة الشديدة من نجاح أحد أصدقائك؟",
-        "ما هو القرار الذي اتخذته بناءً على عاطفتك وندمت عليه لاحقاً؟",
-        "هل تعتقد أن الحب الأول ينتهي أم يظل محفوراً في الذاكرة؟",
-        "ما هي الكلمة التي قيلت لك وجرحتك عميقاً ولم تنسَها أبداً؟",
-        "هل تجيد المسامحة بسهولة أم أنك تحتفظ بالزعل لفترة طويلة؟",
-        "ما هو الشيء الذي تفعله عندما تكون حزيناً جداً ولا يعرفه أحد؟",
-        "هل تظاهرت يوماً بالقوة بينما كنت مكسوراً من الداخل؟",
-        "ما هو الاختبار الأكثر صعوبة الذي مرت به شخصيتك؟",
-        "ما هو الموقف الأكثر إحراجاً الذي تعرضت له أمام شخص تحبه؟",
-        "هل سبق لك أن قرأت محادثات شخص آخر بالخفية ودون علمه؟",
-        "ما هي الكذبة الكبيرة التي ما زلت تخفيها عن عائلتك؟",
-        "هل سبق لك أن تظاهرت بالنوم للهروب من حديث محرج مع أحدهم؟",
-        "ما هي العادة الغريبة أو المحرجة التي تفعلها عندما تكون بمفردك؟",
-        "ما هو الشيء الذي اشتريته بسعر مرتفع جداً وكان يمثل قمة الغباء؟",
-        "هل حظرت شخصاً في هذا الجروب أو على مواقع التواصل من قبل؟ ولماذا؟",
-        "ما هو أغلظ مقلب أكلته بحياتك ومن كان صاحبه؟",
-        "هل سبق لك أن أكلت طعام شخص آخر بالسر وأنكرت ذلك؟",
-        "ما هو الشيء الذي تحسد غيرك عليه ولكنك تبتسم وتتظاهر بالعكس؟",
-        "ما هو الاسم المستعار الغريب والمحرج الذي كنت تستخدمه في الماضي؟",
-        "هل تحب أو تعجب بشخص موجود معنا في هذا الجروب حالياً؟",
-        "لو طلبنا منك إظهار آخر محادثة على واتساب، هل تتجرأ؟",
-        "ما هو أكثر موقف شعرت فيه بالخجل الشديد وتمنيت لو الأرض ابتلعتك؟",
-        "هل سبق لك أن أرسلت رسالة عتاب أو حب بالخطأ للشخص نفسه؟",
-        "ما هو الشيء الذي لو عرفه الناس عنك ستتغير نظرتهم لك تماماً؟",
-        "ما هي أسرع طريقة تجعل دموعك تنزل فوراً؟",
-        "هل سبق لك أن تظاهرت بالمرض للهروب من امتحان أو عمل؟",
-        "ما هو المبلغ المالي الأكبر الذي خسرته في تجربة أو لعبة وندمت عليه؟",
-        "هل تعتقد أن هناك شخصاً يكرهك بشدة في هذه اللحظة؟ من هو برأيك؟",
-        # الـ 50 سؤالاً الجديد المضاف:
-        "هل تحب نفسك أكثر أم تحب الآخرين؟",
-        "ما هو أجرأ قرار اتخذته في حياتك دون علم أحد؟",
-        "هل شعرت يوماً أنك شخص غير مرغوب فيه في مكان ما؟",
-        "ما هو الشيء الذي يجعلك تبكي فوراً مهما حاولت التظاهر بالقوة؟",
-        "هل تملك الجرأة لقول كلمة 'لا' للشخص الذي تحبه؟",
-        "ما هو الشيء الذي تغير في شخصيتك خلال السنة الأخيرة؟",
-        "هل تسامح من خان ثقتك إذا اعتذر بصدق؟",
-        "ما هي الأغنية التي تصف حالتك النفسية حالياً؟",
-        "هل سبق أن شعرت بالغيرة من صديق مقرب جداً لك؟",
-        "ما هو الموقف الذي جعلك تكبر في العمر فجأة؟",
-        "هل تظاهرت يوماً بالفرح وأنت تشتعل حزناً من الداخل؟",
-        "ما هو الشيء الذي تتمنى لو أن العالم يعرفه عنك؟",
-        "من هو الشخص الذي تستطيع أن تبكي أمامه دون خجل؟",
-        "هل تعتقد أن حظك في الحياة جيد أم سيء؟",
-        "ما هو العيب الأساسي الذي تجده في شخصيتك؟",
-        "هل شعرت يوماً أنك ظالم لشخص ما في حياتك؟",
-        "ما هي أكبر تضحية قدمتها من أجل شخص لا يستحق؟",
-        "هل سبق لك أن تركت شخصاً وأنت ما زلت تحبه؟",
-        "ما هو الشيء الذي لا تستطيع غفرانه مهما حدث؟",
-        "هل تشعر بالرضا الكامل عن حياتك الحالية؟",
-        "ما هو الهدف الذي تبذل قصارى جهدك لتحقيقه الآن؟",
-        "هل تفضل العزلة أم التواجد بين الناس دائماً؟",
-        "ما هو الدرس القاسي الذي علمك إياه الحب؟",
-        "هل تجد صعوبة في التعبير عن مشاعرك الحقيقية؟",
-        "ما هي العادة التي ترغب في التخلص منها فوراً؟",
-        "هل تعتقد أن هناك من يحسدك في هذا الجروب؟",
-        "ما هو الكابوس الذي يراودك من وقت لآخر؟",
-        "هل تخاف من الفشل أم تخاف من المجهول أكثر؟",
-        "ما هي الكلمة التي تمس قلبك فوراً وتغير مزاجك؟",
-        "هل سبق أن ندمت على معرفة شخص ما بحياتك؟",
-        "ما هي أكثر تجربة علمتك ألا تثق بسرعة؟",
-        "هل تعتبر نفسك شخصاً غامضاً أم كتاباً مفتوحاً؟",
-        "ما هو العتاب الذي تخفيه بقلبك ولم تقله لأحد؟",
-        "هل سبق أن اضطررت للتخلي عن حلمك بسبب الظروف؟",
-        "ما هي الذكرى التي تتمنى مسحها تماماً من ذاكرتك؟",
-        "هل تعتقد أنك شخص سهل الفهم أم معقد؟",
-        "ما هو الشيء الذي يجعل عينيك تدمعان بدون سبب أحياناً؟",
-        "هل تحافظ على أسرار أصدقائك حتى بعد الخلاف معهم؟",
-        "ما هي الصفة التي تبحث عنها أولاً في أي صديق جديد؟",
-        "هل سبق أن شعرت أن حياتك مسرحية تكرر نفسها؟",
-        "ما هو أكثر شيء تخشى خسارته حالياً؟",
-        "هل تشعر بأنك حققت شيئاً يفخر به أهلك؟",
-        "ما هي الحقيقة المحرجة التي تخاف أن تعرفها الناس عنك؟",
-        "هل تجيد التسامح أم تتظاهر بالنسيان فقط؟",
-        "ما هي النصيحة التي تلقتها وغيرت مجرى حياتك؟",
-        "هل سبق أن تظاهرت بعدم معرفة أمر ما لحماية شخص آخر؟",
-        "ما هو الشيء الذي تفعله عندما تشعر بالضياع؟",
-        "هل تعتقد أن الجمال الخارجي يطغى على الشخصية في هذا الزمان؟",
-        "ما هي أصدق لحظة عشتها في حياتك حتى الآن؟",
-        "لو طُلب منك اختيار شخص واحد ليبدأ معك حياة جديدة، من تختار؟"
-    ]
-    for sq in saraha_list:
-        cursor.execute("SELECT 1 FROM saraha_questions WHERE question = ?", (sq,))
-        if not cursor.fetchone():
+    # 2. أسئلة صراحة الجريئة (إضافة 50 سؤالاً جديداً ومحدثاً)
+    cursor.execute("SELECT COUNT(*) FROM saraha_questions")
+    if cursor.fetchone()[0] < 50:
+        saraha_list = [
+            "ما هي أكبر غلطة ارتكبتها بحق شخص وما زلت نادماً عليها؟",
+            "هل سبق لك أن راقبت حساب شخص بعد الفراق أو الخصام؟",
+            "ما هي الصفة التي تكرها في نفسك وتتمنى تغييرها فوراً؟",
+            "هل تفضل العقل أم العاطفة في اتخاذ قراراتك المصيرية؟",
+            "ما هو السر الذي لم تقله لأقرب شخص إليك حتى اليوم؟",
+            "هل اعتذرت يوماً لشخص رغم أنك تدرك أنك لست المخطئ فقط لكي لا تخسره؟",
+            "ما هو التصرف الذي يقضي على ثقتك بالشخص الآخر فوراً؟",
+            "هل شعرت يوماً بالغيرة الشديدة من نجاح أحد أصدقائك؟",
+            "ما هو القرار الذي اتخذته بناءً على عاطفتك وندمت عليه لاحقاً؟",
+            "هل تعتقد أن الحب الأول ينتهي أم يظل محفوراً في الذاكرة؟",
+            "ما هي الكلمة التي قيلت لك وجرحتك عميقاً ولم تنسَها أبداً؟",
+            "هل تجيد المسامحة بسهولة أم أنك تحتفظ بالزعل لفترة طويلة؟",
+            "ما هو الشيء الذي تفعله عندما تكون حزيناً جداً ولا يعرفه أحد؟",
+            "هل تظاهرت يوماً بالقوة بينما كنت مكسوراً من الداخل؟",
+            "ما هو الاختبار الأكثر صعوبة الذي مرت به شخصيتك؟",
+            "ما هو الموقف الأكثر إحراجاً الذي تعرضت له أمام شخص تحبه؟",
+            "هل سبق لك أن قرأت محادثات شخص آخر بالخفية ودون علمه؟",
+            "ما هي الكذبة الكبيرة التي ما زلت تخفيها عن عائلتك؟",
+            "هل سبق لك أن تظاهرت بالنوم للهروب من حديث محرج مع أحدهم؟",
+            "ما هي العادة الغريبة أو المحرجة التي تفعلها عندما تكون بمفردك؟",
+            "ما هو الشيء الذي اشتريته بسعر مرتفع جداً وكان يمثل قمة الغباء؟",
+            "هل حظرت شخصاً في هذا الجروب أو على مواقع التواصل من قبل؟ ولماذا؟",
+            "ما هو أغلظ مقلب أكلته بحياتك ومن كان صاحبه؟",
+            "هل سبق لك أن أكلت طعام شخص آخر بالسر وأنكرت ذلك؟",
+            "ما هو الشيء الذي تحسد غيرك عليه ولكنك تبتسم وتتظاهر بالعكس؟",
+            "ما هو الاسم المستعار الغريب والمحرج الذي كنت تستخدمه في الماضي؟",
+            "هل تحب أو تعجب بشخص موجود معنا في هذا الجروب حالياً؟",
+            "لو طلبنا منك إظهار آخر محادثة على واتساب، هل تتجرأ؟",
+            "ما هو أكثر موقف شعرت فيه بالخجل الشديد وتمنيت لو الأرض ابتلعتك؟",
+            "هل سبق لك أن أرسلت رسالة عتاب أو حب بالخطأ للشخص نفسه؟",
+            "ما هو الشيء الذي لو عرفه الناس عنك ستتغير نظرتهم لك تماماً؟",
+            "ما هي أسرع طريقة تجعل دموعك تنزل فوراً؟",
+            "هل سبق لك أن تظاهرت بالمرض للهروب من امتحان أو عمل؟",
+            "ما هو المبلغ المالي الأكبر الذي خسرته في تجربة أو لعبة وندمت عليه؟",
+            "هل تعتقد أن هناك شخصاً يكرهك بشدة في هذه اللحظة؟ من هو برأيك؟",
+            # ---- 50 سؤال جديد مضاف لـ صراحة ----
+            "ما هو أول انطباع أخذته عن الشخص الذي تحدثه كثيراً بالجروب؟",
+            "هل تجرؤ على كتابة اسم أول شخص أحببته بحياتك هنا؟",
+            "ما هي الجملة التي لو سمعتها من أحدهم اليوم ستغير يومك للأفضل؟",
+            "هل تفضل الصراحة القاسية أم اللطف المزيف؟ ولماذا؟",
+            "ما هو أكبر هوس لديك ولا تستطيع التوقف عنه؟",
+            "ما هو الشك الذي يراودك دائماً تجاه الناس من حولك؟",
+            "هل هناك شخص تتمنى أن يرجع لـ حياتك بعد أن قطعتم التواصل؟",
+            "ما هو المكان الذي تتمنى الذهاب إليه فوراً وبمفردك؟",
+            "ما هو الشيء الذي تخجل من الاعتراف بأنك تحبه؟",
+            "هل تعتقد أن هناك من يحبك سرّاً في هذا الجروب؟",
+            "لو أتيحت لك فرصة معرفة نية شخص واحد تجاهك، من تختار؟",
+            "ما هي أكثر أمنية ترغب بتحقيقها قبل نهاية هذا العام؟",
+            "هل سبق لك أن بكيت من شدة الضحك؟ متى كانت آخر مرة؟",
+            "ما هو الموقف الذي جعلك تكبر عشر سنوات في يوم واحد؟",
+            "هل ترى نفسك شخصاً يسهل تعويضه أم أنك شخص فريد من نوعه؟",
+            "ما هي الرسالة التي كتبت ولم ترسلها أبداً؟ لمن كانت؟",
+            "هل تشعر بالرضا الكامل عن مسار حياتك الحالي؟",
+            "ما هي التضحية الكبرى التي قدمتها من أجل شخص ولم يقدرها؟",
+            "ما هي أسرع طريقة لاستفزازك وإخراجك عن شعورك؟",
+            "هل تحكم على الناس من مظاهرهم أم من أفعالهم؟",
+            "ما هي الكلمة التي تمثل عنوان مرحلتك الحالية في الحياة؟",
+            "لو كان بإمكانك مسح ذكرى واحدة من مخيلتك، ما هي؟",
+            "هل أنت شخص يسامح بسرعة أم تحتفظ بالزعل في قلبك؟",
+            "ما هو أكبر سوء فهم حدث معك ولا زال أثره موجوداً؟",
+            "هل تخاف من المستقبل أم تترقبه بشغف؟",
+            "ما هو الشيء الذي تتمنى لو أن أهلك يفهمونه عنك؟",
+            "ما هو أعظم درس تعلمته من خيبة أمل سابقة؟",
+            "هل تجد صعوبة في قول كلمة 'لا' للأشخاص؟",
+            "ما هو الشيء الذي يجعلك تثق بشخص فوراً؟",
+            "لو طلبت منك وصف شخصيتك بكلمتين فقط، ماذا تقول؟",
+            "هل تظن أنك ارتكبت ذنباً أو خطأً لا يغتفر؟",
+            "ما هو القرار الذي اتخذته وغير مجرى حياتك بالكامل؟",
+            "ما هي أكثر موهبة تتمنى لو أنك تمتلكها؟",
+            "هل تفضل أن تكون محبوباً أم محترماً؟ ولماذا؟",
+            "ما هو العيب الوحيد الذي تتمنى لو تغيره في طريقة تفكيرك؟",
+            "هل تؤمن بالحب من أول نظرة أم بالتعود؟",
+            "ما هي اللحظة التي شعرت فيها بأنك وحيد تماماً رغم وجود الجميع؟",
+            "لو كان بإمكانك الاعتذار لشخص واحد الآن، من سيكون؟",
+            "ما هو أكثر حلم يتكرر في نومك؟",
+            "هل تجد صعوبة في إظهار مشاعرك الحقيقية لمن تحب؟",
+            "ما هو الشيء الذي ينقصك لتكون سعيداً بحق؟",
+            "ما هي الصفة التي تنجذب إليها فوراً في الشخص المقابل؟",
+            "هل سبق لك أن خسرت صديقاً مقرباً بسبب موقف بسيط؟",
+            "ما هو أسلوبك في التعامل مع الضغط النفسي؟",
+            "لو خُيّرت بين العيش في الماضي أو الحاضر، ماذا تختار؟",
+            "ما هو الشيء الذي تفكر فيه دائماً قبل النوم مباشرة؟",
+            "هل تعتقد أن الصداقة بين الشاب والبنت ممكنة ودائمة؟",
+            "ما هو الشيء الذي لا يمكن أن تسامح فيه أبداً مهما كان السبب؟",
+            "هل أنت شخص كتوم أم تحب المشاركة والفضفضة؟",
+            "ما هو الانطباع الأول الذي يعطيه حضورك للشخص لأول مرة؟"
+        ]
+        for sq in saraha_list:
             cursor.execute("INSERT INTO saraha_questions (question) VALUES (?)", (sq,))
 
     # 3. 50 حزورة منطقية
@@ -405,7 +404,7 @@ def init_db():
         for rq, ra in new_riddles_list:
             cursor.execute("INSERT INTO riddles (question, answer) VALUES (?, ?)", (rq, ra))
 
-    # 4. إدخال الردود المخصصة (مع توسيع ردود فرفوش)
+    # 4. إدخال الردود المخصصة وإضافة ردود متنوعة لكلمة "فرفوش"
     extra_replies = [
         ("بحبك", "وانا بحبك قد المتة والبحيرة! ❤️😍"),
         ("بحبك", "لك يسلملي ربك وانا بعشقك يا عسل! 🥰"),
@@ -470,13 +469,10 @@ def init_db():
         ("فرفوش", "عيون فرفوش الروق كله! 😍"),
         ("فرفوش", "فرفوش بالخدمة والروق والسعادة! ✨"),
         ("فرفوش", "لبيه يا عيون فرفوش 😘"),
-        ("فرفوش", "فرفوش معك، أمرني يا حلو! 🕺"),
-        ("فرفوش", "نعم يا عيون وروح فرفوش! ❤️"),
-        ("فرفوش", "فرفوش المروق جاهز لأحلى شلة ☕✨"),
-        ("فرفوش", "يا هلا بالفرفشة كلها! نورتني والله 🥰"),
-        ("فرفوش", "شو يا عسل؟ فرفوش بيحبك وبيموت عليك! 💖"),
-        ("فرفوش", "فرفوش موجود، الحزن ممنوع والقعدة حلوة! 😎"),
-        ("فرفوش", "سماع صوت فرفوش ويرتاح بالك 😉"),
+        ("فرفوش", "لك أهلاً وسهلاً تاج راسي! فرفوش على حطة إيدك 👑"),
+        ("فرفوش", "سيد الكل والروق! ناديتني يا عسل؟ 🍯"),
+        ("فرفوش", "معك فرفوش شخصياً.. آمرني يا معلم 🕺"),
+        ("فرفوش", "يا عيني عليك لما تناديني! شو بدك تقلي؟ 😏❤️"),
         ("فرفوشي", "يا عيون فرفوشي أنت! ❤️"),
         ("فرفوشي", "روح قلب فرفوشي من جوة 🫣"),
         ("فرفوشتي", "نعم يا روح فرفوشتك! 🌸"),
@@ -592,7 +588,7 @@ def is_user_jailed(user_id):
     if row and row[0] > 0:
         amount, loan_time = row
         current_time = int(time.time())
-        if (current_time - loan_time) >= 7200: # ساعتان
+        if (current_time - loan_time) >= 7200:
             return True, amount
     return False, 0
 
@@ -628,22 +624,7 @@ def send_large_text(chat_id, header, items_list):
     if current_msg:
         bot.send_message(chat_id, current_msg)
 
-# ==================== لوحة تحكم الأدمن الشاملة ====================
-def send_admin_panel(chat_id):
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    markup.add(
-        types.InlineKeyboardButton("➕ إضافة رد", callback_data="admin_add_reply"),
-        types.InlineKeyboardButton("🔇 إسكات لكروب", callback_data="admin_mute_group"),
-        types.InlineKeyboardButton("🚪 مغادرة لكروب", callback_data="admin_leave_group"),
-        types.InlineKeyboardButton("📢 إذاعة للمجموعات", callback_data="admin_broadcast_groups"),
-        types.InlineKeyboardButton("➕ إضافة أدمن", callback_data="admin_add_admin"),
-        types.InlineKeyboardButton("💰 تعديل رصيد", callback_data="admin_edit_bal"),
-        types.InlineKeyboardButton("🎮 إضافة لعبة خاصة", callback_data="admin_add_custom_game"),
-        types.InlineKeyboardButton("📊 إحصائيات البوت", callback_data="admin_stats")
-    )
-    bot.send_message(chat_id, "⚙️ **لوحة التحكم والإدارة الشاملة:**\nاختر من الأزرار التالية للتعديل أو الإدارة:", reply_markup=markup, parse_mode="Markdown")
-
-# ==================== نظام جيمني المطور ====================
+# ==================== نظام الذكاء الاصطناعي (Gemini) ====================
 def fetch_ai_answer(question):
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -826,7 +807,7 @@ def send_welcome_message(message):
         "👋 **أهلاً بك في بوت فرفوش الشامل للمجموعات والتسلية!**\n\n"
         "✨ **المميزات المفعلة:**\n"
         "🛡️ **حماية المجموعة:** منع الروابط والمعرفات والتوجيه للأعضاء.\n"
-        "🎮 **ألعاب متطورة:** XO، رياضيات، خمن الرقم، خمن المسلسل 📺، القاتل 🔪، وعجلة الحظ 🎡، ولعبة مين كفو 🔥.\n"
+        "🎮 **ألعاب متطورة:** XO، رياضيات، خمن الرقم، خمن المسلسل 📺، القاتل 🔪، وعجلة الحظ 🎡، ولعبة مين كفو 🔥، ولعبة فرفوش اتحداك.\n"
         "🍔 **مطعم ومتجر:** شراء، بيع، إهداء، وسرقة المأكولات والمشروبات بالرد!\n"
         "🤖 **ذكاء اصطناعي (جيمني الأصلي):** اكتب `عندي سؤال` أو `بدي ساوي صورة [وصف]`.\n"
         "🎵 **تحميل يوتيوب تلقائي:** أرسل كلمة `يوتيوب` أو `سمعني` مع اسم الأغنية وسيتم تحميلها فوراً."
@@ -893,7 +874,7 @@ def main_router(message):
     is_muted = c.fetchone()
     conn.close()
 
-    # زر ميزة إسكات البوت في المجموعات (للأدمن)
+    # زر ميزة إسكات البوت في المجموعات للمشرفين
     if text in ["إسكات البوت", "اسكات البوت"] and is_chat_admin(chat_id, user_id):
         conn = sqlite3.connect("bot_data.db")
         c = conn.cursor()
@@ -911,19 +892,53 @@ def main_router(message):
     if is_muted and not is_admin(user_id) and text not in ["إسكات البوت", "اسكات البوت"]:
         return
 
-    # معالجة مدخلات الأدمن اللوحة التفاعلية والردود المتعددة
+    # معالجة مدخلات إدخال الردود المتعددة والأدمن
     if is_admin(user_id) and user_id in admin_states:
         handle_admin_inputs(message)
         return
 
+    # لعبة فرفوش اتحداك (استقبال الحرف)
+    if user_id in farfoush_challenge_users:
+        del farfoush_challenge_users[user_id]
+        if len(text) == 1 or len(text.split()) == 1:
+            char = text[0].lower()
+            responses = {
+                'ا': "أحلى معلم بالدنيا عم يتحداني؟ أكلنا شاورما ونسينا الحساب يا خالي! 🌯😂",
+                'ب': "برغش الليل ولا صفنة الحبيب.. بكرا بتكبر وبتبعتلي متة! ☕😜",
+                'ت': "تاكل كباب ولا تقعد تتحداني؟ ترى فرفوش معلمك بالسحبات! 😎🍢",
+                'ث': "ثبت حالك بالأول وبعدين اتحداني، ثروتك كبشة هوى يا مسكين! 💨🤣",
+                'ج': "جاي تتحدى فرفوش؟ جملك مع القافلة ماشية وأنت ناطر الرد! 🐪✨",
+                'ح': "حبل المودة مقطوع إذا ما بتعزمني على أكلة كباب اليوم! 🍢😆",
+                'خ': "خليك أودام ولا تعملي فيها فتاك.. خذ لك كاسة متة وروق! ☕🔥",
+                'د': "دربك خضرا يا معلم بس لا تقرب على جيبي ترى مفلس أكتر منك! 💸😂",
+                'ذ': "ذكائك خارق للعادة بس مع فرفوش بتاكل هوا بعين قوية! 😜",
+                'ر': "روح طالعلك كاسة متة وارجع اتحداني، فرفوش بيمسي عليك! 👑☕",
+                'ز': "زلمة وكفو بس لا تراهن قدام فرفوش ترى الخسارة مضمونة! 🎲🤣",
+                'س': "سيمفونية الروق بتبدأ لما تنادي فرفوش معلمك يا عسل! 🎵😍",
+                'ش': "شاورما مع ثوم زيادة ولا القعدة معك بالجروب؟ الخيارين عسل! 🌯❤️️",
+                'ص': "صارحني الحقيقة.. أنت عم تتحداني ولا عم تضيع وقتك معنا؟ 😜💬",
+                'ض': "ضحكتك بتسوى الدنيا! بس بالتحدي فرفوش القائد بلا منازع 🏆",
+                'ط': "طالع من باب الدار لقيت فرفوش بوجهك، وين هربان؟ 🚪🤣",
+                'ظ': "ظبظبت أمورك باللعبة ولا لسا شاحذ رصيد من القرض؟ 💸😆",
+                'ع': "عيون فرفوش إلك! بس لا تطلب مني مصاري ترى الطفر أسلوب حياة 😂",
+                'غ': "غالي وعالي القدر بس بالتحدي معك فرفوش معلمك الصغير! ✨😎",
+                'ف': "فرفوش اسمي والروق كارنا.. شو أطيب من قعدة بالجروب معكم؟ 🥰",
+                'ق': "قال بدو يتحداني قال! قوم عملنا كاسة شاي ولاك ☕🤣",
+                'ك': "كفو منك يا بطل! بس فرفوش المعلم بيبقى فوق الجميع 👑✨",
+                'ل': "لك تقبر قلبي الهي! شو هالطلة الحلوة يا غالي ❤️😍",
+                'م': "متة على الصبح مع فرفوش بتسوى ألف دولار كاش! ☕💰",
+                'ن': "نام بكير واستيقظ بكير وشوف فرفوش شو بيعمل معك للصبح! 🌙😂",
+                'ه': "هربت منك كل الخسائر وجتك الأرباح كرمال عينك يا عسل! 🍀🎉",
+                'و': "ورجينا شو طلع معك! حرفك جميل وفرفوش المعلم بيحييك 🕺",
+                'ي': "يا سيدي أحلى تحية لعيونك! فرفوش معلمك بالخدمة دائماً 🔥"
+            }
+            res_text = responses.get(char, f"حرفك ({char}) بلشت فيه أصفن وطلع معي: أنت أطيب شخص وحرفك بينقط عسل مع معلمك فرفوش! 😉✨")
+            bot.reply_to(message, res_text)
+            return
+
     if text.startswith("/start") or text.lower() == "ستارت":
         send_welcome_message(message)
         return
-
-    if text.startswith("/admin") or text in ["الادمن", "الآدمن", "لوحة التحكم", "لوحة الادارة"]:
-        if is_admin(user_id):
-            send_admin_panel(chat_id)
-            return
 
     # فحص روابط يوتيوب المباشرة
     yt_match = re.search(r'(https?://(?:www\.)?(?:youtube\.com|youtu\.be)/\S+)', text)
@@ -1045,30 +1060,27 @@ def process_bot_commands(message):
     chat_id = message.chat.id
     chat_type = message.chat.type
 
-    # ميزة هديتي (10,000 ليرة لأول مرة فقط)
-    if text in ["عطيني هديتي", "هديتي", "أعطيني هديتي"]:
+    # ميزة عطيني هديتي (تضاف لرصيده 10,000 لأول مرة فقط مع رسالة فكاهية)
+    if text in ["عطيني هديتي", "هديتي", "بدي هديتي"]:
         conn = sqlite3.connect("bot_data.db")
         c = conn.cursor()
-        c.execute("SELECT 1 FROM gifts_claimed WHERE user_id = ?", (user_id,))
-        already_claimed = c.fetchone()
-        if already_claimed:
-            funny_claimed_msgs = [
-                "اخدتها مرة فرقني! 😂",
-                "أخدتها مرة وفرقني ياعم! الهدية مو كل يوم 😂🏃‍♂️",
-                "شو عبالك بنك؟ اخدتها مرة وفرقني بلى غلبة! 😜"
-            ]
-            bot.reply_to(message, random.choice(funny_claimed_msgs))
-        else:
-            c.execute("INSERT INTO gifts_claimed (user_id) VALUES (?)", (user_id,))
-            conn.commit()
+        c.execute("SELECT received_gift FROM users WHERE user_id = ?", (user_id,))
+        row = c.fetchone()
+        
+        if not row or row[0] == 0:
             update_balance(user_id, 10000)
-            funny_first_gift = [
-                "خود يافقير وانبسط! 🎁😂 تم إضافة 10,000 ليرة وهمية لرصيدك!",
-                "خود يا معتر 10,000 ليرة وهمية وعيش حياتك يومين! 💰🕺",
-                "تكرم عينك! خود يافقير هي 10,000 ليرة وهمية ينبل بها الريق 😂🎉"
-            ]
-            bot.reply_to(message, random.choice(funny_first_gift))
+            c.execute("INSERT INTO users (user_id, balance, received_gift) VALUES (?, 10000, 1) ON CONFLICT(user_id) DO UPDATE SET received_gift = 1", (user_id,))
+            conn.commit()
+            bot.reply_to(message, "خود يافقير هي 10000 ليرة كرمال عينك.. مو كل يوم تصبح وتتمسى بوشي بس برك بتمشي أمورك! 😂💰")
+        else:
+            bot.reply_to(message, "لك أخدتها مرة يا طماع فرقني بقا! 😒 مفكرني كنز علي بابا؟ ما بقا يطلعلك شي ثانية!")
         conn.close()
+        return
+
+    # لعبة "فرفوش اتحداك"
+    if text in ["فرفوش اتحداك", "اتحداك", "اتحداك يا فرفوش"]:
+        farfoush_challenge_users[user_id] = True
+        bot.reply_to(message, "أنا جاهز للتحدي يا معلم! 🔥 أرسل لي حرفك (حرف واحد) ورجيني شو بطلع مع كبّار الجروب!")
         return
 
     if text == "شو انا":
@@ -1150,7 +1162,7 @@ def process_bot_commands(message):
                     chat_id,
                     f"🔥 **صدور الحكم في تحدي مين كفو!** 🔥\n\n"
                     f"وقع الاختيار على الكفو: **[{victim_name}](tg://user?id={victim_id})** 🎯\n\n"
-                    f"🤐 **الحكم:** تم كتمك لمدة **5 دقائق** كاملاً! ستُحذف رسائلك تلقائياً حتى انقضاء الوقت 🤫",
+                    f"🤐 **الحكم:** تم كتمك لمدة **5 دقائق** كاملاً! حتا لو كنت مشرفاً أو عضواً ستُحذف رسائلك تلقائياً حتى انقضاء الـ 5 دقائق 🤫",
                     parse_mode="Markdown"
                 )
 
@@ -1165,7 +1177,7 @@ def process_bot_commands(message):
                     f"🔥 **صدور الحكم في تحدي مين كفو!** 🔥\n\n"
                     f"وقع الاختيار على: **[{victim_name}](tg://user?id={victim_id})** 🎯\n\n"
                     f"🏷️ **الحكم:** سمي حالك (**{req_name}**) أو تنكتم لمدة 5 دقائق!\n"
-                    f"⚠️ يتعرف البوت على اسمك تلقائياً دون الحاجة للكتابة.",
+                    f"⚠️ يتعرف البوت على اسمك تلقائياً دون الحاجة للكتابة، وعند انتهاء الـ 5 دقائق ينتهي الكتم والتقييد تماماً مهما كان اسمك.",
                     parse_mode="Markdown"
                 )
 
@@ -1175,7 +1187,10 @@ def process_bot_commands(message):
                     "ما هي أكبر كذبة كذبتها على أعضاء هذا الجروب أو على أهلك؟",
                     "ما هو السر الذي تخفيه عن الجميع وتخاف أن ينكشف يوماً ما؟",
                     "لو طلبنا منك فتح الاستوديو وإرسال الصورة رقم 5 عندك بالهاتف، هل تجرؤ؟",
-                    "ما هي أكثر صفة سيئة فيك وتتمنى أن تتخلص منها فوراً؟"
+                    "ما هي أكثر صفة سيئة فيك وتتمنى أن تتخلص منها فوراً؟",
+                    "هل سبق لك أن راقبت حساب شخص في الجروب بالسر وبشكل متكرر؟ من هو؟",
+                    "ما هو التصرف الغريب أو الغبي الذي تفعله عندما تكون وحدك تماماً؟",
+                    "هل سبق أن تظاهرت بالحب أو الصداقة مع شخص وأنت تبغضه بالداخل؟"
                 ]
                 chosen_q = random.choice(embarrassing_qs)
                 q_msg = bot.send_message(
@@ -1184,7 +1199,7 @@ def process_bot_commands(message):
                     f"وقع الاختيار على المعاقب: **[{victim_name}](tg://user?id={victim_id})** 🎯\n\n"
                     f"😳 **العقوبة (سؤال محرج جداً):**\n"
                     f"❓ `{chosen_q}`\n\n"
-                    f"⚠️️ **تنبيه:** لن يتم السماح لك باللعب أو الكتابة إلا بعد إرسال الجواب!",
+                    f"⚠️ **تنبيه:** لن يتم السماح لك باللعب أو الكتابة إلا بعد إرسال الجواب بالرد على هذا السؤال!",
                     parse_mode="Markdown"
                 )
                 embarrassing_penalties[(chat_id, victim_id)] = {
@@ -1196,14 +1211,16 @@ def process_bot_commands(message):
             else:
                 funny_judgments = [
                     f"👑 **[{victim_name}](tg://user?id={victim_id})** أنت الكفو! ولكن الحكم عليك: اعترف بأحرج موقف صار معك بحياتك فوراً 😂",
-                    f"😜 **[{victim_name}](tg://user?id={victim_id})** طلعت مو كفو هالمرة! الحكم: غير صورتك الشخصية لمدة يوم كامل أو اعزم الجروب على شاورما 🌯"
+                    f"😜 **[{victim_name}](tg://user?id={victim_id})** طلعت مو كفو هالمرة! الحكم: غير صورتك الشخصية لمدة يوم كامل أو اعزم الجروب على شاورما 🌯",
+                    f"🔥 **[{victim_name}](tg://user?id={victim_id})** الحكم فكاهي وناقد: اعترف مين أكثر عضو بتموت منه بالجروب وبدون مجاملة! 🤫",
+                    f"🎭 **[{victim_name}](tg://user?id={victim_id})** حكم القدر: أرسل بصمة صوت وأنت عم تغني أغنية للأطفال وشوف تقييم الجروب إلك 🎤"
                 ]
                 bot.send_message(chat_id, f"🔥 **صدور الحكم في تحدي مين كفو!** 🔥\n\n{random.choice(funny_judgments)}", parse_mode="Markdown")
 
             del min_kafo_games[chat_id]
             return
 
-    # أسئلة صراحة
+    # صراحة
     if text in ["صراحة", "صراحه", "اسئلة صراحة", "سؤال صراحة"]:
         conn = sqlite3.connect("bot_data.db")
         c = conn.cursor()
@@ -1261,7 +1278,8 @@ def process_bot_commands(message):
 
             funny_food_success = [
                 f"🥷 هجمت بلهفة وسرقت من {target_user.first_name} عدد **{stolen_qty}** من ({item_req}) وأكلتها بلمح البصر! صحتين وهنا على قلبك 😂",
-                f"😋 دخلت على غفلة وطيرت لـ {target_user.first_name} **{stolen_qty}** حبة ({item_req})! يا سلام شو طيبة!"
+                f"😋 دخلت على غفلة وطيرت لـ {target_user.first_name} **{stolen_qty}** حبة ({item_req})! يا سلام شو طيبة!",
+                f"🕵️‍♂️ غافلت {target_user.first_name} وشفطت من جيبته **{stolen_qty}** ({item_req}) ورحت لبعيد تلغّم فيها!"
             ]
             bot.reply_to(message, random.choice(funny_food_success), parse_mode="Markdown")
         else:
@@ -1275,7 +1293,7 @@ def process_bot_commands(message):
         conn.close()
         return
 
-    # الردود التلقائية
+    # الردود التلقائية المخصصة
     conn = sqlite3.connect("bot_data.db")
     c = conn.cursor()
     c.execute("SELECT response, media_type, file_id FROM custom_replies WHERE keyword = ?", (text,))
@@ -1298,7 +1316,7 @@ def process_bot_commands(message):
             bot.reply_to(message, rep_text)
         return
 
-    # جيمني الأصلي
+    # جيمني الاصلي
     if text == "عندي سؤال" or text.startswith("عندي سؤال "):
         if not is_gemini_enabled(chat_type, chat_id, user_id):
             bot.reply_to(message, "عليك الاشتراك في هذه الميزة حدث المطور @syabd0")
@@ -1339,7 +1357,7 @@ def process_bot_commands(message):
             bot.reply_to(message, "اكتب وصف الصورة التي تريد إنشاءها:")
         return
 
-    # الألعاب
+    # الألعاب النشطة
     if chat_id in active_crime_games:
         game_data = active_crime_games[chat_id]
         if text.lower() == game_data['killer'].lower():
@@ -1378,7 +1396,7 @@ def process_bot_commands(message):
             del active_guess_games[chat_id]
             return
 
-    # التحميل من يوتيوب وسمعني
+    # تحميل يوتيوب وسمعني
     if text.startswith("يوتيوب") or text.lower().startswith("youtube"):
         query = re.sub(r'^(يوتيوب|youtube)', '', text, flags=re.IGNORECASE).strip()
         if not query:
@@ -1395,7 +1413,7 @@ def process_bot_commands(message):
         download_and_send_audio(chat_id, query, message.message_id)
         return
 
-    # لعبة الرهان (تحسين الحظ إلى 60% ربح و 40% خسارة)
+    # تحسين حظ الرهان إلى 60% ربح و 40% خسارة
     if text.startswith("راهن"):
         current_time = int(time.time())
         conn = sqlite3.connect("bot_data.db")
@@ -1405,11 +1423,7 @@ def process_bot_commands(message):
 
         if row and (current_time - row[0]) < 60:
             remaining_secs = 60 - (current_time - row[0])
-            funny_bet_msgs = [
-                f"🎲 طول بالك يا زلمة! الرهان مقيد كل دقيقة، استنى لك `{remaining_secs}` ثانية ⏱️",
-                f"🎲 اهدى شوي على جيبتك! فاضل `{remaining_secs}` ثانية للرهان الجاي 😂"
-            ]
-            bot.reply_to(message, random.choice(funny_bet_msgs), parse_mode="Markdown")
+            bot.reply_to(message, f"🎲 طول بالك يا زلمة! الرهان مقيد كل دقيقة، استنى لك `{remaining_secs}` ثانية ودقّة ثانية ⏱️", parse_mode="Markdown")
             conn.close()
             return
 
@@ -1430,7 +1444,7 @@ def process_bot_commands(message):
             conn.commit()
             conn.close()
 
-            # 60% ربح و 40% خسارة
+            # حظ 60% ربح و 40% خسارة
             is_won = random.choices([True, False], weights=[60, 40])[0]
             if is_won:
                 update_balance(user_id, bet_amount)
@@ -1443,7 +1457,7 @@ def process_bot_commands(message):
             bot.reply_to(message, "💡 للمراهنة أرسل:\n`راهن [المبلغ]`\nمثال: `راهن 20`", parse_mode="Markdown")
         return
 
-    # لعبة العجلة (تحسين الحظ إلى 60% ربح و 40% خسارة)
+    # تحسين حظ العجلة إلى 60% ربح و 40% خسارة
     if text in ["عجلة", "العجلة", "لعبة العجلة"]:
         current_time = int(time.time())
         conn = sqlite3.connect("bot_data.db")
@@ -1453,11 +1467,7 @@ def process_bot_commands(message):
 
         if row and (current_time - row[0]) < 60:
             remaining_secs = 60 - (current_time - row[0])
-            funny_wheel_msgs = [
-                f"🎡 على مهلك يا حباب! العجلة بدها استراحة دقيقة، باقي `{remaining_secs}` ثانية 🎡",
-                f"🎡 روق المانجا شوي! فاضل `{remaining_secs}` ثانية ⏱️"
-            ]
-            bot.reply_to(message, random.choice(funny_wheel_msgs), parse_mode="Markdown")
+            bot.reply_to(message, f"🎡 على مهلك يا حباب! العجلة بدها استراحة دقيقة، باقي `{remaining_secs}` ثانية وبتفتّ من جديد 🎡", parse_mode="Markdown")
             conn.close()
             return
 
@@ -1472,7 +1482,7 @@ def process_bot_commands(message):
         conn.commit()
         conn.close()
 
-        # 60% ربح و 40% خسارة
+        # حظ 60% ربح و 40% خسارة
         is_win = random.choices([True, False], weights=[60, 40])[0]
         if is_win:
             won = random.choice([50, 100, 200, 500, 1000, 2000])
@@ -1482,7 +1492,7 @@ def process_bot_commands(message):
             bot.reply_to(message, "🎡 **درت عجلة الحظ!**\nتم خصم 50 ليرة... وخسرت! حظاً أفضل في المرة القادمة 💔", parse_mode="Markdown")
         return
 
-    # الاستثمار (تحسين الحظ إلى 60% ربح و 40% خسارة)
+    # تحسين حظ الاستثمار إلى 60% ربح و 40% خسارة
     if text.startswith("استثمار"):
         current_time = int(time.time())
         conn = sqlite3.connect("bot_data.db")
@@ -1509,7 +1519,7 @@ def process_bot_commands(message):
             conn.commit()
             conn.close()
 
-            # 60% ربح و 40% خسارة
+            # حظ 60% ربح و 40% خسارة
             is_success = random.choices([True, False], weights=[60, 40])[0]
             if is_success:
                 gain_percent = random.randint(20, 90)
@@ -1531,7 +1541,7 @@ def process_bot_commands(message):
         bot.send_message(chat_id, f"🎮 **لعبة XO جديدة ومجانية بالكامل!**\nالمنافس الأول: {message.from_user.first_name}\n🎁 **جائزة الفائز:** 100 ليرة وهمية!\nاضغط للانضمام والمنافسة:", reply_markup=get_xo_keyboard(None, user_id, message.from_user.first_name))
         return
 
-    # المطعم ومتجر الأكل
+    # المطعم والمتجر
     if text in ["مطعم", "المطعم"]:
         conn = sqlite3.connect("bot_data.db")
         c = conn.cursor()
@@ -1969,174 +1979,197 @@ def handle_xo_callbacks(call):
             next_sym = game['symbols'][game['turn']]
             bot.edit_message_text(f"🎮 المباراة مستمرة بين:\n❌ {game['p1_name']}\n⭕ {game['p2_name']}\n\nالدور الحالي: {next_name} ({next_sym})", chat_id, msg_id, reply_markup=get_xo_keyboard(game))
 
-# ==================== معالجة أزرار الأدمن بالكامل ====================
-@bot.callback_query_handler(func=lambda call: call.data.startswith('admin_') or call.data.startswith('toggle_mute_grp_') or call.data.startswith('confirm_leave_grp_') or call.data.startswith('do_leave_grp_') or call.data == 'cancel_leave_grp')
+# ==================== لوحة تحكم الأدمن والردود المتعددة ====================
+@bot.callback_query_handler(func=lambda call: call.data == "open_admin_panel")
+def open_admin_panel_handler(call):
+    if not is_admin(call.from_user.id):
+        bot.answer_callback_query(call.id, "عذراً، هذه اللوحة مخصصة للآدمن فقط!", show_alert=True)
+        return
+
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    markup.add(
+        types.InlineKeyboardButton("➕ إضافة رد مخصص", callback_data="admin_add_reply"),
+        types.InlineKeyboardButton("🗑️ حذف رد مخصص", callback_data="admin_del_reply"),
+        types.InlineKeyboardButton("🔇 إسكات البوت بجروب", callback_data="admin_list_mute_groups"),
+        types.InlineKeyboardButton("🚪 مغادرة جروب", callback_data="admin_list_leave_groups"),
+        types.InlineKeyboardButton("📢 إذاعة للجروبات", callback_data="admin_broadcast"),
+        types.InlineKeyboardButton("👤 إضافة أدمن", callback_data="admin_add_admin"),
+        types.InlineKeyboardButton("💵 تعديل رصيد عضو", callback_data="admin_edit_bal"),
+        types.InlineKeyboardButton("🛒 إضافة صنف متجر", callback_data="admin_add_store"),
+        types.InlineKeyboardButton("🎮 إضافة لعبة مخصصة", callback_data="admin_add_game"),
+        types.InlineKeyboardButton("📊 إحصائيات البوت", callback_data="admin_stats")
+    )
+    bot.edit_message_text("⚙️ **لوحة التحكم والإدارة الشاملة للبوت:**\n\nيرجى اختيار الخيار المطلوب:", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('admin_'))
 def handle_admin_callbacks(call):
     user_id = call.from_user.id
     chat_id = call.message.chat.id
-    msg_id = call.message.message_id
+    action = call.data
 
     if not is_admin(user_id):
-        bot.answer_callback_query(call.id, "❌ هذه اللوحة للأدمن فقط!", show_alert=True)
+        bot.answer_callback_query(call.id, "غير مسموح لك!", show_alert=True)
         return
 
-    try:
+    # تطوير إضافة رد: يطلب الكلمة أولاً ثم الوسائط أو النصوص المتعددة
+    if action == "admin_add_reply":
+        admin_states[user_id] = {'state': 'wait_custom_reply_kw'}
+        bot.send_message(chat_id, "📝 **أرسل الكلمة المطلوبة للرد المخصص أولاً:**", parse_mode="Markdown")
         bot.answer_callback_query(call.id)
-    except:
-        pass
 
-    if call.data == "admin_add_reply":
-        admin_states[user_id] = "wait_reply_keyword"
-        bot.send_message(chat_id, "✍️ **أدخل الكلمة / الجملة المفتاحية للرد الجديد:**", parse_mode="Markdown")
-
-    elif call.data == "admin_mute_group":
+    # إصلاح زر إسكات البوت في الجروبات
+    elif action == "admin_list_mute_groups":
         conn = sqlite3.connect("bot_data.db")
         c = conn.cursor()
         c.execute("SELECT chat_id, title FROM groups")
-        groups = c.fetchall()
+        grps = c.fetchall()
         c.execute("SELECT chat_id FROM muted_groups")
         muted_ids = [r[0] for r in c.fetchall()]
         conn.close()
 
-        if not groups:
-            bot.send_message(chat_id, "⚠️ لا توجد مجموعات مسجلة بعد في قاعدة البيانات.")
+        if not grps:
+            bot.answer_callback_query(call.id, "لا توجد مجموعات مسجلة حالياً!", show_alert=True)
             return
 
         markup = types.InlineKeyboardMarkup(row_width=1)
-        for g_id, g_title in groups:
-            status_icon = "🔇 (مسكوت)" if g_id in muted_ids else "🔊 (شغال)"
-            markup.add(types.InlineKeyboardButton(f"{g_title} - {status_icon}", callback_data=f"toggle_mute_grp_{g_id}"))
-        
-        markup.add(types.InlineKeyboardButton("🔙 رجوع للوحة التحكم", callback_data="open_admin_panel"))
-        bot.edit_message_text("🔇 **إدارة إسكات المجموعات:**\nاضغط على اسم المجموعة للتحويل بين الإسكات والتفعيل:", chat_id, msg_id, reply_markup=markup, parse_mode="Markdown")
+        for g_id, g_title in grps:
+            status = "🔇 (مسكت)" if g_id in muted_ids else "🔊 (شغال)"
+            markup.add(types.InlineKeyboardButton(f"{g_title} - {status}", callback_data=f"admin_toggle_mute_{g_id}"))
+        markup.add(types.InlineKeyboardButton("🔙 العودة للوحة الإدارة", callback_data="open_admin_panel"))
 
-    elif call.data.startswith("toggle_mute_grp_"):
-        target_g_id = int(call.data.split("_")[3])
+        bot.edit_message_text("🔇 **قائمة المجموعات المضافة (اضغط على اسم المجموعة لإسكات البوت أو تفعيله):**", chat_id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+
+    elif action.startswith("admin_toggle_mute_"):
+        target_gid = int(action.replace("admin_toggle_mute_", ""))
         conn = sqlite3.connect("bot_data.db")
         c = conn.cursor()
-        c.execute("SELECT 1 FROM muted_groups WHERE chat_id = ?", (target_g_id,))
+        c.execute("SELECT 1 FROM muted_groups WHERE chat_id = ?", (target_gid,))
         if c.fetchone():
-            c.execute("DELETE FROM muted_groups WHERE chat_id = ?", (target_g_id,))
-            res_msg = "تم تفعيل المجموعة ورفع الإسكات عنها 🔊"
+            c.execute("DELETE FROM muted_groups WHERE chat_id = ?", (target_gid,))
+            bot.answer_callback_query(call.id, "🔊 تم فك الإسكات عن المجموعة!", show_alert=True)
         else:
-            c.execute("INSERT INTO muted_groups VALUES (?)", (target_g_id,))
-            res_msg = "تم إسكات المجموعة بنجاح ولن يستجيب البوت فيها 🔇"
+            c.execute("INSERT INTO muted_groups VALUES (?)", (target_gid,))
+            bot.answer_callback_query(call.id, "🔇 تم إسكات البوت في المجموعة بنجاح!", show_alert=True)
         conn.commit()
-
-        c.execute("SELECT chat_id, title FROM groups")
-        groups = c.fetchall()
-        c.execute("SELECT chat_id FROM muted_groups")
-        muted_ids = [r[0] for r in c.fetchall()]
         conn.close()
+        # إعادة تحديث القائمة
+        handle_admin_callbacks(types.CallbackQuery(id=call.id, from_user=call.from_user, message=call.message, data="admin_list_mute_groups", chat_instance=call.chat_instance))
 
-        markup = types.InlineKeyboardMarkup(row_width=1)
-        for g_id, g_title in groups:
-            status_icon = "🔇 (مسكوت)" if g_id in muted_ids else "🔊 (شغال)"
-            markup.add(types.InlineKeyboardButton(f"{g_title} - {status_icon}", callback_data=f"toggle_mute_grp_{g_id}"))
-        markup.add(types.InlineKeyboardButton("🔙 رجوع للوحة التحكم", callback_data="open_admin_panel"))
-        
-        bot.answer_callback_query(call.id, res_msg, show_alert=True)
-        try:
-            bot.edit_message_text("🔇 **إدارة إسكات المجموعات:**\nاضغط على اسم المجموعة للتحويل بين الإسكات والتفعيل:", chat_id, msg_id, reply_markup=markup, parse_mode="Markdown")
-        except:
-            pass
-
-    elif call.data == "admin_leave_group":
+    # إصلاح زر مغادرة الجروبات
+    elif action == "admin_list_leave_groups":
         conn = sqlite3.connect("bot_data.db")
         c = conn.cursor()
         c.execute("SELECT chat_id, title FROM groups")
-        groups = c.fetchall()
+        grps = c.fetchall()
         conn.close()
 
-        if not groups:
-            bot.send_message(chat_id, "⚠️ لا توجد مجموعات مسجلة بالملاذ بعد.")
+        if not grps:
+            bot.answer_callback_query(call.id, "لا توجد مجموعات حالياً!", show_alert=True)
             return
 
         markup = types.InlineKeyboardMarkup(row_width=1)
-        for g_id, g_title in groups:
-            markup.add(types.InlineKeyboardButton(f"🚪 {g_title}", callback_data=f"confirm_leave_grp_{g_id}"))
-        markup.add(types.InlineKeyboardButton("🔙 رجوع للوحة التحكم", callback_data="open_admin_panel"))
-        bot.edit_message_text("🚪 **اختيار مجموعة لمغادرتها:**\nاختر اسم المجموعة التي تريد من البوت الخروج منها:", chat_id, msg_id, reply_markup=markup, parse_mode="Markdown")
+        for g_id, g_title in grps:
+            markup.add(types.InlineKeyboardButton(f"🚪 {g_title}", callback_data=f"admin_ask_leave_{g_id}"))
+        markup.add(types.InlineKeyboardButton("🔙 العودة للوحة الإدارة", callback_data="open_admin_panel"))
 
-    elif call.data.startswith("confirm_leave_grp_"):
-        target_g_id = int(call.data.split("_")[3])
+        bot.edit_message_text("🚪 **اختر المجموعة التي تريد أن يغادرها البوت:**", chat_id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+
+    elif action.startswith("admin_ask_leave_"):
+        target_gid = int(action.replace("admin_ask_leave_", ""))
         conn = sqlite3.connect("bot_data.db")
         c = conn.cursor()
-        c.execute("SELECT title FROM groups WHERE chat_id = ?", (target_g_id,))
+        c.execute("SELECT title FROM groups WHERE chat_id = ?", (target_gid,))
         row = c.fetchone()
         conn.close()
         g_name = row[0] if row else "المجموعة"
 
         markup = types.InlineKeyboardMarkup(row_width=2)
         markup.add(
-            types.InlineKeyboardButton("✅ تأكيد المغادرة", callback_data=f"do_leave_grp_{target_g_id}"),
-            types.InlineKeyboardButton("❌ إلغاء", callback_data="cancel_leave_grp")
+            types.InlineKeyboardButton("✅ تأكيد المغادرة", callback_data=f"admin_confirm_leave_{target_gid}"),
+            types.InlineKeyboardButton("❌ إلغاء", callback_data="admin_list_leave_groups")
         )
-        bot.edit_message_text(f"⚠️ **تأكيد القرار:**\nهل أنت متأكد من مغادرة المجموعة (**{g_name}**)؟", chat_id, msg_id, reply_markup=markup, parse_mode="Markdown")
+        bot.edit_message_text(f"⚠️ **هل أنت تأكيد تريد مغادرة المجموعة:**\n`{g_name}` ؟", chat_id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
 
-    elif call.data.startswith("do_leave_grp_"):
-        target_g_id = int(call.data.split("_")[3])
+    elif action.startswith("admin_confirm_leave_"):
+        target_gid = int(action.replace("admin_confirm_leave_", ""))
         try:
-            bot.leave_chat(target_g_id)
-        except:
+            bot.leave_chat(target_gid)
+        except Exception:
             pass
         conn = sqlite3.connect("bot_data.db")
         c = conn.cursor()
-        c.execute("DELETE FROM groups WHERE chat_id = ?", (target_g_id,))
+        c.execute("DELETE FROM groups WHERE chat_id = ?", (target_gid,))
         conn.commit()
         conn.close()
-        bot.edit_message_text("✅ تم خروج وغادرة المجموعة بنجاح وتم مسحها من السجلات!", chat_id, msg_id)
+        bot.answer_callback_query(call.id, "✅ تم مغادرة المجموعة بنجاح!", show_alert=True)
+        handle_admin_callbacks(types.CallbackQuery(id=call.id, from_user=call.from_user, message=call.message, data="admin_list_leave_groups", chat_instance=call.chat_instance))
 
-    elif call.data == "cancel_leave_grp":
-        bot.edit_message_text("❌ تم إلغاء طلب المغادرة.", chat_id, msg_id)
+    elif action == "admin_del_reply":
+        admin_states[user_id] = "wait_del_reply"
+        bot.send_message(chat_id, "أرسل الكلمة المفتاحية للرد المراد حذفه:")
+        bot.answer_callback_query(call.id)
 
-    elif call.data == "open_admin_panel":
-        send_admin_panel(chat_id)
+    elif action == "admin_broadcast":
+        admin_states[user_id] = "wait_broadcast"
+        bot.send_message(chat_id, "📢 أرسل النص أو الرسالة التي تريد إذاعتها لجميع المجموعات:")
+        bot.answer_callback_query(call.id)
 
-    elif call.data == "admin_broadcast_groups":
-        admin_states[user_id] = "wait_broadcast_msg"
-        bot.send_message(chat_id, "📢 **أرسل الآن الرسالة المراد إذاعتها لجميع المجموعات:**", parse_mode="Markdown")
-
-    elif call.data == "admin_add_admin":
+    elif action == "admin_add_admin":
         admin_states[user_id] = "wait_add_admin_id"
-        bot.send_message(chat_id, "👤 **أرسل الـ Telegram ID للأدمن الجديد:**", parse_mode="Markdown")
+        bot.send_message(chat_id, "أرسل ID المستخدم الجديد لتعيينه أدمن:")
+        bot.answer_callback_query(call.id)
 
-    elif call.data == "admin_edit_bal":
+    elif action == "admin_edit_bal":
         admin_states[user_id] = "wait_fake_bal_userid"
-        bot.send_message(chat_id, "💰 **أرسل الـ Telegram ID للمستخدم المراد تعديل رصيده:**", parse_mode="Markdown")
+        bot.send_message(chat_id, "أرسل ID المستخدم المراد تعديل رصيده الوهمي:")
+        bot.answer_callback_query(call.id)
 
-    elif call.data == "admin_add_custom_game":
+    elif action == "admin_add_store":
+        admin_states[user_id] = "wait_add_store_item"
+        bot.send_message(chat_id, "أرسل اسم الصنف والسعر بالشكل التالي:\n`اسم الصنف - السعر`", parse_mode="Markdown")
+        bot.answer_callback_query(call.id)
+
+    elif action == "admin_add_game":
         admin_states[user_id] = "wait_custom_game_name"
-        bot.send_message(chat_id, "🎮 **أدخل اسم اللعبة الجديدة:**", parse_mode="Markdown")
+        bot.send_message(chat_id, "أرسل اسم اللعبة المخصصة الجديدة:")
+        bot.answer_callback_query(call.id)
 
-    elif call.data == "admin_stats":
+    elif action == "admin_stats":
         conn = sqlite3.connect("bot_data.db")
         c = conn.cursor()
-        c.execute("SELECT COUNT(*) FROM users")
-        u_count = c.fetchone()[0]
         c.execute("SELECT COUNT(*) FROM groups")
         g_count = c.fetchone()[0]
+        c.execute("SELECT COUNT(*) FROM users")
+        u_count = c.fetchone()[0]
         c.execute("SELECT COUNT(*) FROM custom_replies")
         r_count = c.fetchone()[0]
         conn.close()
-        bot.send_message(chat_id, f"📊 **إحصائيات البوت الحالية:**\n\n👤 عدد المستخدمين: `{u_count}`\n👥 عدد المجموعات: `{g_count}`\n💬 عدد الردود المخصصة: `{r_count}`", parse_mode="Markdown")
 
-# ==================== معالجة مدخلات الأدمن النصية والمتعددة ====================
+        stats_msg = f"📊 **إحصائيات البوت الشاملة:**\n\n👥 **المجموعات:** {g_count}\n👤 **المستخدمين:** {u_count}\n💬 **الردود المخصصة:** {r_count}"
+        bot.send_message(chat_id, stats_msg, parse_mode="Markdown")
+        bot.answer_callback_query(call.id)
+
 def handle_admin_inputs(message):
     user_id = message.from_user.id
     chat_id = message.chat.id
     state = admin_states.get(user_id)
-    text = (message.text or message.caption or "").strip()
+    text = (message.text or "").strip()
 
     if isinstance(state, dict):
         st_name = state.get('state')
-        if st_name == 'wait_reply_content':
-            kw = state.get('keyword')
-            
+        # نظام إضافة الردود المتعددة والمختلفة للكلمة الواحدة
+        if st_name == 'wait_custom_reply_kw':
+            kw = text
+            admin_states[user_id] = {'state': 'wait_custom_reply_media', 'kw': kw, 'count': 0}
+            bot.reply_to(message, f"📝 الكلمة المطلوبة: **{kw}**\n\nالان قم بإرسال نص، صوت، فيديو، ملصق، أو صورة كـ رد لهذه الكلمة.\nيمكنك إرسال أكثر من رد مخصص ميديا أو نص! وعند الانتهاء تماماً أرسل كلمة **تم**.", parse_mode="Markdown")
+            return
+
+        elif st_name == 'wait_custom_reply_media':
+            kw = state.get('kw')
             if text == "تم":
                 count = state.get('count', 0)
                 del admin_states[user_id]
-                bot.reply_to(message, f"🎉 **تم حفظ الردود بنجاح!**\nتمت إضافة **{count}** رد/ردود للكلمة المفتاحية: `{kw}` بنجاح!", parse_mode="Markdown")
+                bot.reply_to(message, f"✅ **تم الانتهاء بنجاح!**\nتم حفظ عدد `{count}` رد مخصص للكلمة (**{kw}**).", parse_mode="Markdown")
                 return
 
             media_type = 'text'
@@ -2146,18 +2179,23 @@ def handle_admin_inputs(message):
             if message.photo:
                 media_type = 'photo'
                 file_id = message.photo[-1].file_id
+                resp_text = message.caption or ""
             elif message.video:
                 media_type = 'video'
                 file_id = message.video.file_id
+                resp_text = message.caption or ""
             elif message.audio:
                 media_type = 'audio'
                 file_id = message.audio.file_id
+                resp_text = message.caption or ""
             elif message.voice:
                 media_type = 'voice'
                 file_id = message.voice.file_id
+                resp_text = ""
             elif message.sticker:
                 media_type = 'sticker'
                 file_id = message.sticker.file_id
+                resp_text = ""
 
             conn = sqlite3.connect("bot_data.db")
             c = conn.cursor()
@@ -2166,7 +2204,7 @@ def handle_admin_inputs(message):
             conn.close()
 
             state['count'] = state.get('count', 0) + 1
-            bot.reply_to(message, f"✅ تم حفظ الرد رقم **{state['count']}** للكلمة (`{kw}`) بنجاح!\n\nأرسل رد آخر (نص، صوت، فيديو، صورة، ملصق، بصمة...) أو أرسل كلمة **تم** للإنهاء.", parse_mode="Markdown")
+            bot.reply_to(message, f"✅ تم إضافة هذا الرد للكلمة (**{kw}**) بنجاح!\nأرسل رد آخر أو اكتب كلمة **تم** للإنهاء.", parse_mode="Markdown")
             return
 
         elif st_name == 'wait_custom_game_rules':
@@ -2192,40 +2230,37 @@ def handle_admin_inputs(message):
             del admin_states[user_id]
             return
 
-    if state == "wait_reply_keyword":
-        admin_states[user_id] = {'state': 'wait_reply_content', 'keyword': text, 'count': 0}
-        bot.reply_to(
-            message,
-            f"✅ الكلمة المفتاحية: **{text}**\n\n"
-            f"الان أرسل **الرد** (يمكنك إرسال: نص، صورة، فيديو، صوت، بصمة صوتية، أو ملصق).\n"
-            f"💡 يمكنك إرسال أكثر من رد للكلمة نفسها، وعند الانتهاء تماماً أرسل كلمة **تم** للإنهاء.",
-            parse_mode="Markdown"
-        )
+    if state == "wait_del_reply":
+        conn = sqlite3.connect("bot_data.db")
+        c = conn.cursor()
+        c.execute("DELETE FROM custom_replies WHERE keyword = ?", (text,))
+        conn.commit()
+        conn.close()
+        del admin_states[user_id]
+        bot.reply_to(message, f"🗑️ تم حذف الرد المخصص للكلمة `{text}` بنجاح!", parse_mode="Markdown")
         return
 
-    elif state == "wait_broadcast_msg":
-        del admin_states[user_id]
+    elif state == "wait_broadcast":
         conn = sqlite3.connect("bot_data.db")
         c = conn.cursor()
         c.execute("SELECT chat_id FROM groups")
-        groups = c.fetchall()
+        grps = c.fetchall()
         conn.close()
-
-        success_c = 0
-        for g in groups:
+        
+        success = 0
+        for g in grps:
             try:
                 if message.photo:
                     bot.send_photo(g[0], message.photo[-1].file_id, caption=message.caption)
                 elif message.video:
                     bot.send_video(g[0], message.video.file_id, caption=message.caption)
-                elif message.sticker:
-                    bot.send_sticker(g[0], message.sticker.file_id)
                 else:
                     bot.send_message(g[0], text)
-                success_c += 1
+                success += 1
             except:
                 continue
-        bot.reply_to(message, f"📢 **تمت الإذاعة بنجاح إلى {success_c} مجموعة!**", parse_mode="Markdown")
+        del admin_states[user_id]
+        bot.reply_to(message, f"📢 تم إرسال الإذاعة إلى `{success}` مجموعة بنجاح!", parse_mode="Markdown")
         return
 
     elif state == "wait_custom_game_name":
@@ -2257,7 +2292,23 @@ def handle_admin_inputs(message):
             del admin_states[user_id]
         return
 
-# ==================== التشغيل الرئيسي ====================
+    elif state == "wait_add_store_item":
+        parts = text.split("-")
+        if len(parts) == 2 and parts[1].strip().isdigit():
+            i_name, i_price = parts[0].strip(), int(parts[1].strip())
+            conn = sqlite3.connect("bot_data.db")
+            c = conn.cursor()
+            c.execute("INSERT OR REPLACE INTO store VALUES (?, ?)", (i_name, i_price))
+            conn.commit()
+            conn.close()
+            bot.reply_to(message, f"✅ تم إضافة `{i_name}` بسعر {i_price} ليرة بنجاح!", parse_mode="Markdown")
+        else:
+            bot.reply_to(message, "❌ تنسيق خاطئ. التنسيق المطلوب: `اسم الصنف - السعر`", parse_mode="Markdown")
+        del admin_states[user_id]
+        return
+
+# ==================== تشغيل البوت ====================
 if __name__ == "__main__":
-    print("🤖 Bot started successfully...")
+    keep_alive()
+    print("🤖 بوت فرفوش المطور يعمل بنجاح وكامل الميزات مفعلة!")
     bot.infinity_polling(skip_pending=True)
