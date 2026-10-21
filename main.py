@@ -16,7 +16,7 @@ except ImportError:
         pass
 
 # ==================== الإعدادات الأساسية ====================
-TOKEN = "8880921736:AAHBAZ_5tDNKbmc0VsFI5xaShgYZFlLns08"
+TOKEN = "8880921736:AAG0qA3LKw65fkYAi9N25O2FbfITv7iLKnc"
 ADMIN_ID = 8577656131
 
 bot = telebot.TeleBot(TOKEN)
