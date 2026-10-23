@@ -16,7 +16,7 @@ except ImportError:
         pass
 
 # ==================== الإعدادات الأساسية ====================
-TOKEN = "8880921736:AAG0qA3LKw65fkYAi9N25O2FbfITv7iLKnc"
+TOKEN = "8880921736:AAEE9a1APlaUVGlAppNLvdJ5QECvfP814kg"
 ADMIN_ID = 8577656131
 
 bot = telebot.TeleBot(TOKEN)
@@ -839,6 +839,7 @@ def get_admin_keyboard():
         types.InlineKeyboardButton("➕ إضافة رد", callback_data="admin_add_reply"),
         types.InlineKeyboardButton("🗑 حذف رد", callback_data="admin_del_reply"),
         types.InlineKeyboardButton("📋 قائمة الردود", callback_data="admin_list_replies"),
+        types.InlineKeyboardButton("➕ إضافة صنف للمتجر", callback_data="admin_add_store_item"),
         types.InlineKeyboardButton("🔇 إسكات لجروب", callback_data="admin_mute_group_list"),
         types.InlineKeyboardButton("🚪 مغادرة جروب", callback_data="admin_leave_group_list"),
         types.InlineKeyboardButton("➕ إضافة مشرف", callback_data="admin_add_admin"),
@@ -1149,7 +1150,7 @@ def process_bot_commands(message):
                 bot.reply_to(message, "انت عضو بس عضو من قلبي ♥️")
         return
 
-    # ==================== ميزة عطيني هديتي (كل 6 ساعات، من 100 حتى مليون) ====================
+    # ==================== ميزة عطيني هديتي (كل 6 ساعات، من 100 حتى 10000) ====================
     if text in ["عطيني هديتي", "اعطيني هديتي", "هديتي"]:
         current_time = int(time.time())
         conn = sqlite3.connect("bot_data.db")
@@ -1163,20 +1164,20 @@ def process_bot_commands(message):
             rem_mins = int((remaining_secs % 3600) / 60)
             conn.close()
             funny_claimed_msgs = [
-                f"😂 **أخدتها مرة يا طماع!**\nمفكر الهدايا ببلاش؟ انتظر كمان `{rem_hours}` ساعات و `{rem_mins}` دقيقة لترجع تاخد هدية جديدة! 🏃‍♂️💨",
-                f"👀 عم تحاول تاخدها قبل وقتها؟ اصبر شوي! باقي `{rem_hours}` ساعات و `{rem_mins}` دقيقة، حل عني يرحم إجريك! 😂",
-                f"😜 استهدي بالله يا غالي! أخدتها وخلصت، تعال بعد `{rem_hours}` ساعات و `{rem_mins}` دقيقة! 🗿"
+                f"😂 يا فقير، أخدتها من شوي! اصبر كمان `{rem_hours}` ساعات و `{rem_mins}` دقيقة لترجع تشحذ هدية جديدة! 🏃‍♂️💨",
+                f"👀 مفكر الهدايا بتنبت بالأرض يا فقير؟ باقي `{rem_hours}` ساعات و `{rem_mins}` دقيقة.. حل عني! 😂",
+                f"😜 استهدي بالله يا فقير! أخدتها وخلصت، تعال بعد `{rem_hours}` ساعات و `{rem_mins}` دقيقة! 🗿"
             ]
             bot.reply_to(message, random.choice(funny_claimed_msgs), parse_mode="Markdown")
             return
 
-        gift_amount = random.randint(100, 1000000)
+        gift_amount = random.randint(100, 10000)
         update_balance(user_id, gift_amount)
         c.execute("INSERT INTO gift_claimed (user_id, last_claim) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET last_claim = ?", (user_id, current_time, current_time))
         conn.commit()
         conn.close()
         
-        bot.reply_to(message, f"🎁 **خود يا فقير هديتك الفخمة!**\nتم إضافة **{gift_amount:,}** ليرة وهمية لرصيدك! اصرفها بعقل ولا تطيرها بخمس دقائق! 😂💸", parse_mode="Markdown")
+        bot.reply_to(message, f"🎁 **خود يا فقير هديتك!**\nتم إضافة **{gift_amount:,}** ليرة وهمية لرصيدك المفلس! اصرفها بعقل يا فقير ولا تطيرها بخمس دقائق! 😂💸", parse_mode="Markdown")
         return
 
     # ==================== لعبة مين أسرع ====================
@@ -1611,7 +1612,7 @@ def process_bot_commands(message):
             update_balance(user_id, won)
             bot.reply_to(message, f"🎡 **درت عجلة الحظ!**\nتم خصم 50 ليرة... وربحت **{won}** ليرة وهمية! 🎉", parse_mode="Markdown")
         else:
-            bot.reply_to(message, "🎡 **درت عجلة الحظ!**\nتم خصم 50 ليرة... وخسرت! حظاً أفضل في المرة القادمة 💔", parse_mode="Markdown")
+            bot.reply_to(message, f"🎡 **درت عجلة الحظ!**\nتم خصم 50 ليرة... وخسرت! حظاً أفضل في المرة القادمة 💔", parse_mode="Markdown")
         return
 
     # لعبة XO
@@ -2225,6 +2226,10 @@ def handle_admin_callbacks(call):
             items = [f"`{kw}` (عدد الردود: {cnt})" for kw, cnt in rep_summary.items()]
             send_large_text(chat_id, "📋 **قائمة الردود المخصصة المسجلة:**", items)
 
+    elif data == "admin_add_store_item":
+        admin_states[user_id] = {'stage': 'wait_store_item_name'}
+        bot.send_message(chat_id, "🛒 **أرسل اسم الصنف الجديد الذي تريد إضافته للمتجر:**", parse_mode="Markdown")
+
     elif data == "admin_mute_group_list":
         conn = sqlite3.connect("bot_data.db")
         c = conn.cursor()
@@ -2518,6 +2523,27 @@ def handle_admin_inputs(message):
             bot.reply_to(message, f"✅ تم إرسال الرسالة إلى المجموعة بنجاح!")
         except Exception as e:
             bot.reply_to(message, f"❌ تعذر إرسال الرسالة إلى المجموعة: {e}")
+
+    elif stage == 'wait_store_item_name':
+        if not text:
+            bot.reply_to(message, "⚠️ يرجى إرسال اسم صنف صحيح.")
+            return
+        admin_states[user_id] = {'stage': 'wait_store_item_price', 'item_name': text}
+        bot.reply_to(message, f"✅ تم تحديد اسم الصنف: `{text}`\nالآن أرسل **سعر الصنف** بالليرات (أرقام فقط):", parse_mode="Markdown")
+
+    elif stage == 'wait_store_item_price':
+        if text.isdigit():
+            price = int(text)
+            item_name = state.get('item_name')
+            del admin_states[user_id]
+            conn = sqlite3.connect("bot_data.db")
+            c = conn.cursor()
+            c.execute("INSERT OR REPLACE INTO store (item_name, price) VALUES (?, ?)", (item_name, price))
+            conn.commit()
+            conn.close()
+            bot.reply_to(message, f"✅ تم إضافة الصنف ({item_name}) إلى المتجر بسعر `{price}` ليرة بنجاح! 🛍️", parse_mode="Markdown")
+        else:
+            bot.reply_to(message, "❌ يرجى إرسال السعر كأرقام صحيحة فقط.")
 
     elif stage == 'wait_reply_keyword':
         if not text:
