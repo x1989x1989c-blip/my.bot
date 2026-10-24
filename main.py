@@ -16,7 +16,7 @@ except ImportError:
         pass
 
 # ==================== الإعدادات الأساسية ====================
-TOKEN = "8880921736:AAEE9a1APlaUVGlAppNLvdJ5QECvfP814kg"
+TOKEN = "8880921736:AAF81oNECHXm1mH-In1TotFMt7GEksx0YHg"
 ADMIN_ID = 8577656131
 
 bot = telebot.TeleBot(TOKEN)
@@ -27,6 +27,7 @@ name_penalties = {}         # (chat_id, user_id) -> {'target_name': str, 'expire
 embarrassing_penalties = {} # (chat_id, user_id) -> {'user_name': str, 'question': str, 'msg_id': int}
 farfoosh_challenge_users = {} # user_id -> bool
 active_speed_games = {}     # chat_id -> {'target': str, 'errors': {user_id: count}}
+lucky_games = {}            # chat_id -> game dict (لعبة ضربة حظ)
 
 # ==================== نظام الحذف المتطور والآمن ====================
 def safe_delete_message(chat_id, message_id):
@@ -38,7 +39,7 @@ def safe_delete_message(chat_id, message_id):
 
 # ==================== قاعدة البيانات ====================
 def init_db():
-    conn = sqlite3.connect("bot_data.db")
+    conn = sqlite3.connect("bot_data.db", timeout=10)
     cursor = conn.cursor()
     
     cursor.execute("""
@@ -185,7 +186,7 @@ def init_db():
     except:
         pass
 
-    # إضافة أصناف المتجر والمطعم
+    # إضافة أصناف المتجر والمطعم (مع الأصناف الجديدة المطلوبة)
     cursor.execute("INSERT OR IGNORE INTO store VALUES ('علبة متة', 50)")
     cursor.execute("INSERT OR IGNORE INTO store VALUES ('كيلو سكر', 100)")
     cursor.execute("INSERT OR IGNORE INTO store VALUES ('شاورما', 100)")
@@ -194,6 +195,11 @@ def init_db():
     cursor.execute("INSERT OR IGNORE INTO store VALUES ('كباب', 250)")
     cursor.execute("INSERT OR IGNORE INTO store VALUES ('عصير', 50)")
     cursor.execute("INSERT OR IGNORE INTO store VALUES ('متة', 50)")
+    # الأصناف الجديدة
+    cursor.execute("INSERT OR IGNORE INTO store VALUES ('كلب', 1)")
+    cursor.execute("INSERT OR IGNORE INTO store VALUES ('سيارة', 1000000)")
+    cursor.execute("INSERT OR IGNORE INTO store VALUES ('بيت', 5000000)")
+    cursor.execute("INSERT OR IGNORE INTO store VALUES ('برج', 20000000)")
 
     # 1. الأسئلة العامة
     cursor.execute("SELECT COUNT(*) FROM questions")
@@ -253,7 +259,7 @@ def init_db():
         for q in questions_list:
             cursor.execute("INSERT INTO questions (question) VALUES (?)", (q,))
 
-    # 2. إضافة 100 سؤال صراحة جديد وجريء ومميز
+    # 2. إضافة أسئلة الصراحة
     cursor.execute("DELETE FROM saraha_questions")
     saraha_list_100 = [
         "ما هي أكبر غلطة ارتكبتها بحق شخص وما زلت نادماً عليها حتى هذه اللحظة؟",
@@ -416,7 +422,7 @@ def init_db():
     for rq, ra in new_riddles_list:
         cursor.execute("INSERT INTO riddles (question, answer) VALUES (?, ?)", (rq, ra))
 
-    # 4. إدخال الردود المخصصة وتزويد ردود جديدة لكلمة "فرفوش"
+    # 4. الردود المخصصة
     extra_replies = [
         ("فرفوش", "عيون فرفوش الروق كله! 😍"),
         ("فرفوش", "فرفوش بالخدمة والروق والسعادة! ✨"),
@@ -546,7 +552,7 @@ min_kafo_games = {}
 def is_admin(user_id):
     if user_id == ADMIN_ID:
         return True
-    conn = sqlite3.connect("bot_data.db")
+    conn = sqlite3.connect("bot_data.db", timeout=10)
     c = conn.cursor()
     c.execute("SELECT user_id FROM admins WHERE user_id = ?", (user_id,))
     res = c.fetchone()
@@ -572,7 +578,7 @@ def is_bot_admin(chat_id):
 def is_gemini_enabled(chat_type, chat_id, user_id):
     if chat_type == 'private':
         return True
-    conn = sqlite3.connect("bot_data.db")
+    conn = sqlite3.connect("bot_data.db", timeout=10)
     c = conn.cursor()
     c.execute("SELECT 1 FROM gemini_groups WHERE chat_id = ?", (chat_id,))
     res = c.fetchone()
@@ -580,7 +586,7 @@ def is_gemini_enabled(chat_type, chat_id, user_id):
     return bool(res)
 
 def get_balance(user_id):
-    conn = sqlite3.connect("bot_data.db")
+    conn = sqlite3.connect("bot_data.db", timeout=10)
     c = conn.cursor()
     c.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
     res = c.fetchone()
@@ -588,14 +594,14 @@ def get_balance(user_id):
     return res[0] if res else 0
 
 def update_balance(user_id, amount):
-    conn = sqlite3.connect("bot_data.db")
+    conn = sqlite3.connect("bot_data.db", timeout=10)
     c = conn.cursor()
     c.execute("INSERT INTO users (user_id, balance) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET balance = max(0, balance + ?)", (user_id, max(0, amount), amount))
     conn.commit()
     conn.close()
 
 def is_user_jailed(user_id):
-    conn = sqlite3.connect("bot_data.db")
+    conn = sqlite3.connect("bot_data.db", timeout=10)
     c = conn.cursor()
     c.execute("SELECT amount, loan_time FROM loans WHERE user_id = ?", (user_id,))
     row = c.fetchone()
@@ -862,7 +868,7 @@ def on_bot_added_to_group(message):
             welcome_text = "انا جيييييت\nفوتو سلمولي على مطوري @syabd0"
             bot.send_message(message.chat.id, welcome_text)
             
-            conn = sqlite3.connect("bot_data.db")
+            conn = sqlite3.connect("bot_data.db", timeout=10)
             c = conn.cursor()
             c.execute("INSERT OR IGNORE INTO groups VALUES (?, ?)", (message.chat.id, message.chat.title or "مجموعة بدون عنوان"))
             conn.commit()
@@ -880,10 +886,10 @@ def send_welcome_message(message):
         "👋 **أهلاً بك في بوت فرفوش الشامل للمجموعات والتسلية!**\n\n"
         "✨ **المميزات المفعلة:**\n"
         "🛡️ **حماية المجموعة:** منع الروابط والمعرفات والتوجيه للأعضاء.\n"
-        "🎮 **ألعاب متطورة:** XO، رياضيات، خمن الرقم، خمن المسلسل 📺، القاتل 🔪، وعجلة الحظ 🎡، ولعبة مين كفو 🔥، ومين أسرع ⚡.\n"
+        "🎮 **ألعاب متطورة:** XO، رياضيات، خمن الرقم، خمن المسلسل 📺، القاتل 🔪، وعجلة الحظ 🎡، ولعبة مين كفو 🔥، ومين أسرع ⚡، وضربة حظ 🎰.\n"
         "🍔 **مطعم ومتجر:** شراء، بيع، إهداء، وسرقة المأكولات والمشروبات بالرد!\n"
         "🤖 **ذكاء اصطناعي (جيمني الأصلي):** اكتب `عندي سؤال` أو `بدي ساوي صورة [وصف]`.\n"
-        "🎵 **تحميل يوتيوب تلقائي:** أرسل كلمة `يوتيوب` أو `سمعني` مع اسم الأغنية وسيتم تحميلها فوراً."
+        "🎵 **تحميل يوتيوب وملفات موسيقية:** أرسل `غنيلي` أو `يوتيوب` أو `سمعني` مع اسم الأغنية وسيتم تحميلها فوراً."
     )
 
     markup = types.InlineKeyboardMarkup(row_width=1)
@@ -931,7 +937,7 @@ def main_router(message):
     # 3. تطبيق عقوبة السؤال المحرج
     if key in embarrassing_penalties:
         p_data = embarrassing_penalties[key]
-        is_game_cmd = text in ["مين كفو", "مين كفو؟", "انا", "أنا", "بلشها", "بلش", "مين اسرع", "من أسرع"]
+        is_game_cmd = text in ["مين كفو", "مين كفو؟", "انا", "أنا", "بلشها", "بلش", "مين اسرع", "من أسرع", "ضربة حظ", "انا"]
         if text and not is_game_cmd:
             del embarrassing_penalties[key]
             bot.reply_to(message, f"✅ تم قبول إجابتك الصريحة يا **{p_data['user_name']}**! تم رفع التقييد عنك ويمكنك المشاركة في اللعب الآن. 🎉", parse_mode="Markdown")
@@ -982,14 +988,14 @@ def main_router(message):
                 ]
                 bot.reply_to(message, random.choice(funny_err_2))
 
-    conn = sqlite3.connect("bot_data.db")
+    conn = sqlite3.connect("bot_data.db", timeout=10)
     c = conn.cursor()
     c.execute("SELECT 1 FROM muted_groups WHERE chat_id = ?", (chat_id,))
     is_muted = c.fetchone()
     conn.close()
 
     if text in ["إسكات البوت", "اسكات البوت"] and is_chat_admin(chat_id, user_id):
-        conn = sqlite3.connect("bot_data.db")
+        conn = sqlite3.connect("bot_data.db", timeout=10)
         c = conn.cursor()
         c.execute("SELECT 1 FROM muted_groups WHERE chat_id = ?", (chat_id,))
         if c.fetchone():
@@ -1023,7 +1029,7 @@ def main_router(message):
 
     # حماية المجموعات
     if chat_type in ['group', 'supergroup']:
-        conn = sqlite3.connect("bot_data.db")
+        conn = sqlite3.connect("bot_data.db", timeout=10)
         c = conn.cursor()
         c.execute("INSERT OR IGNORE INTO groups VALUES (?, ?)", (chat_id, message.chat.title or "مجموعة بدون عنوان"))
         conn.commit()
@@ -1150,10 +1156,116 @@ def process_bot_commands(message):
                 bot.reply_to(message, "انت عضو بس عضو من قلبي ♥️")
         return
 
+    # ==================== ميزة "غنيلي" العشوائية من يوتيوب ====================
+    if text == "غنيلي" or text.startswith("غنيلي") or text in ["بدي غنية", "غني", "سمعنا غنية", "موسيقى"]:
+        random_songs_pool = [
+            "ناصيف زيتون قداح", "حسين الديك مهلك", "جورج وسوف اصعب فراق", "ملهم زين",
+            "فيروز صباحيات", "كاظم الساهر", "محمد حماقي", "أغاني حماسية سورية",
+            "عاصي الحلاني", "ماجد المهندس", "عبد المجيد عبد الله", "أصالة نصري",
+            "موسيقى عود هادئة", "أغاني طرب قديمة", "مهرجانات مصرية", "راب عربي",
+            "عمار الديراني", "نور الزين", "سيف نبيل", "باص العز", "طرب شعبي سوري"
+        ]
+        chosen_song = random.choice(random_songs_pool)
+        download_and_send_audio(chat_id, chosen_song, message.message_id)
+        return
+
+    # ==================== لعبة "ضربة حظ" الجديدة ====================
+    if text in ["ضربة حظ", "لعبة ضربة حظ"]:
+        if chat_id in lucky_games:
+            bot.reply_to(message, "⚠️ توجد لعبة 'ضربة حظ' قائمة حالياً في هذه المجموعة! انضم إليها بكتابة (انا) 🎲")
+            return
+        
+        bal = get_balance(user_id)
+        if bal < 1000:
+            bot.reply_to(message, "❌ رصيدك لا يكفي! تحتاج إلى 1000 ليرة وهمية للمشاركة وإنشاء لعبة ضربة حظ.")
+            return
+
+        update_balance(user_id, -1000)
+        lucky_games[chat_id] = {
+            'host_id': user_id,
+            'host_name': message.from_user.first_name,
+            'participants': {user_id: message.from_user.first_name},
+            'status': 'waiting'
+        }
+        
+        lucky_msg = (
+            "🎰 **بدأت لعبة ضربة حظ الكبرى!** 🔥\n\n"
+            f"👑 أنشأ اللعبة: **{message.from_user.first_name}**\n"
+            "💰 **سعر المشاركة:** 1,000 ليرة وهمية.\n"
+            "📈 **نسبة الجاك بوت وأرباح الكبار:** الجائزة الكبرى مضاعفة تبدأ من 2x وتصل حتى 10,000 ضعف الرهان!\n\n"
+            "🙋‍♂️ **من يريد المشاركة يكتب:** `انا` (سعر المشاركة 1000 ليرة)\n"
+            "🚀 عندما يكتمل الجميع، يكتب المنشئ أو المالك كلمة: **بسم الله** لبدء السحب الحي والربح الضخم!"
+        )
+        bot.reply_to(message, lucky_msg, parse_mode="Markdown")
+        return
+
+    if text.lower() in ["انا", "أنا"] and chat_id in lucky_games:
+        game = lucky_games[chat_id]
+        if game['status'] == 'waiting':
+            if user_id not in game['participants']:
+                bal = get_balance(user_id)
+                if bal < 1000:
+                    bot.reply_to(message, "❌ رصيدك لا يكفي! تحتاج إلى 1000 ليرة للمشاركة في ضربة حظ.")
+                    return
+                update_balance(user_id, -1000)
+                game['participants'][user_id] = message.from_user.first_name
+                count = len(game['participants'])
+                bot.reply_to(message, f"✅ تم انضمامك بنجاح يا **{message.from_user.first_name}** إلى ضربة حظ! (عدد المشاركين: {count})", parse_mode="Markdown")
+            else:
+                bot.reply_to(message, "أنت مشارك في لعبة ضربة حظ الحالية بالفعل! 😉")
+            return
+
+    if text in ["بسم الله", "بسم الله الرحمن الرحيم"] and chat_id in lucky_games:
+        game = lucky_games[chat_id]
+        if game['status'] == 'waiting':
+            if user_id != game['host_id'] and not is_admin(user_id):
+                bot.reply_to(message, f"⚠️ فقط منشئ اللعبة (**{game['host_name']}**) أو المالك يستطيع إرسال **بسم الله** لبدء السحب!", parse_mode="Markdown")
+                return
+
+            participants = list(game['participants'].items())
+            if not participants:
+                bot.reply_to(message, "لا يوجد مشاركون في اللعبة بعد!")
+                return
+
+            game['status'] = 'running'
+            spin_msg = bot.send_message(chat_id, "🎰 **بدأت عجلة ضربة الحظ بالدوران الحي والمتحرك...** 🔄\n\n_جاري تدوير الأسماء واختيار الفائز بالجاك بوت المنتظر..._", parse_mode="Markdown")
+            
+            for _ in range(3):
+                time.sleep(1)
+                try:
+                    rand_name = random.choice(list(game['participants'].values()))
+                    bot.edit_message_text(f"🎰 **العجلة تدور بسرعة وحيوية...** 🔄\n\nالاسم الحالي: **{rand_name}** 🎲", chat_id, spin_msg.message_id, parse_mode="Markdown")
+                except:
+                    pass
+            time.sleep(1.5)
+
+            winner_id, winner_name = random.choice(participants)
+            multipliers = [2, 3, 5, 10, 50, 100, 500, 1000, 5000, 10000]
+            weights =     [40, 25, 15, 10,  5,   3,   1.5,  0.4,  0.08, 0.02]
+            chosen_mult = random.choices(multipliers, weights=weights)[0]
+            prize_amount = 1000 * chosen_mult
+
+            update_balance(winner_id, prize_amount)
+
+            final_result_text = (
+                "🎉 **انتهت لعبة ضربة الحظ الكبرى بنجاح!** 🎰🔥\n\n"
+                f"🏆 **الفائز السعيد:** [{winner_name}](tg://user?id={winner_id})\n"
+                f"✨ **مضاعف الجاك بوت المحقق:** `{chosen_mult}x`\n"
+                f"💰 **إجمالي الجائزة المربوحة:** **{prize_amount:,}** ليرة وهمية! 💸\n\n"
+                "👏 ألف مبروك للرابح وهاردلك لباقي المشاركين، انتظروا ضربة حظ جديدة قريباً!"
+            )
+            try:
+                bot.edit_message_text(final_result_text, chat_id, spin_msg.message_id, parse_mode="Markdown")
+            except:
+                bot.send_message(chat_id, final_result_text, parse_mode="Markdown")
+
+            del lucky_games[chat_id]
+            return
+
     # ==================== ميزة عطيني هديتي (كل 6 ساعات، من 100 حتى 10000) ====================
     if text in ["عطيني هديتي", "اعطيني هديتي", "هديتي"]:
         current_time = int(time.time())
-        conn = sqlite3.connect("bot_data.db")
+        conn = sqlite3.connect("bot_data.db", timeout=10)
         c = conn.cursor()
         c.execute("SELECT last_claim FROM gift_claimed WHERE user_id = ?", (user_id,))
         row = c.fetchone()
@@ -1337,7 +1449,7 @@ def process_bot_commands(message):
 
     # ==================== أسئلة صراحة ====================
     if text in ["صراحة", "صراحه", "اسئلة صراحة", "سؤال صراحة"]:
-        conn = sqlite3.connect("bot_data.db")
+        conn = sqlite3.connect("bot_data.db", timeout=10)
         c = conn.cursor()
         c.execute("SELECT question FROM saraha_questions ORDER BY RANDOM() LIMIT 1")
         row = c.fetchone()
@@ -1368,7 +1480,7 @@ def process_bot_commands(message):
             return
 
         current_time = int(time.time())
-        conn = sqlite3.connect("bot_data.db")
+        conn = sqlite3.connect("bot_data.db", timeout=10)
         c = conn.cursor()
         c.execute("SELECT last_steal FROM food_steal_cooldowns WHERE user_id = ?", (user_id,))
         row = c.fetchone()
@@ -1409,7 +1521,7 @@ def process_bot_commands(message):
         return
 
     # الردود التلقائية المخصصة
-    conn = sqlite3.connect("bot_data.db")
+    conn = sqlite3.connect("bot_data.db", timeout=10)
     c = conn.cursor()
     c.execute("SELECT response, media_type, file_id FROM custom_replies WHERE keyword = ?", (text,))
     replies = c.fetchall()
@@ -1531,7 +1643,7 @@ def process_bot_commands(message):
     # لعبة الرهان (محدثة: 60% ربح، 40% خسارة)
     if text.startswith("راهن"):
         current_time = int(time.time())
-        conn = sqlite3.connect("bot_data.db")
+        conn = sqlite3.connect("bot_data.db", timeout=10)
         c = conn.cursor()
         c.execute("SELECT last_bet FROM bet_cooldowns WHERE user_id = ?", (user_id,))
         row = c.fetchone()
@@ -1579,7 +1691,7 @@ def process_bot_commands(message):
     # لعبة العجلة (محدثة: 60% ربح، 40% خسارة)
     if text in ["عجلة", "العجلة", "لعبة العجلة"]:
         current_time = int(time.time())
-        conn = sqlite3.connect("bot_data.db")
+        conn = sqlite3.connect("bot_data.db", timeout=10)
         c = conn.cursor()
         c.execute("SELECT last_wheel FROM wheel_cooldowns WHERE user_id = ?", (user_id,))
         row = c.fetchone()
@@ -1622,16 +1734,16 @@ def process_bot_commands(message):
 
     # المطعم والمتجر
     if text in ["مطعم", "المطعم"]:
-        conn = sqlite3.connect("bot_data.db")
+        conn = sqlite3.connect("bot_data.db", timeout=10)
         c = conn.cursor()
         c.execute("SELECT item_name, price FROM store")
         items = c.fetchall()
         conn.close()
         msg_text = "🍔 **قائمة المطعم والمتجر:**\n\n"
         for name, price in items:
-            msg_text += f"• {name} 👈 {price} ليرة\n"
+            msg_text += f"• {name} 👈 {price:,} ليرة\n"
         msg_text += "\n🛒 **الأوامر المتاحة:**\n"
-        msg_text += "• للشراء: `شراء 1 شاورما`\n"
+        msg_text += "• للشراء: `شراء 1 شاورما` أو `شراء 1 بيت`\n"
         msg_text += "• للبيع: `بيع 1 شاورما`\n"
         msg_text += "• للإهداء: `اهداء 1 شاورما` (بالرد)\n"
         msg_text += "• للسرقة والتسلية: `طعميني شاورما` أو `شربني متة` (بالرد على عضو)"
@@ -1653,7 +1765,7 @@ def process_bot_commands(message):
                 bot.reply_to(message, "عم تهدي حالك؟ ما بتزبط!")
                 return
 
-            conn = sqlite3.connect("bot_data.db")
+            conn = sqlite3.connect("bot_data.db", timeout=10)
             c = conn.cursor()
             c.execute("SELECT quantity FROM inventory WHERE user_id = ? AND item_name LIKE ?", (user_id, f"%{item_name}%"))
             row = c.fetchone()
@@ -1674,7 +1786,7 @@ def process_bot_commands(message):
             count = int(parts[1])
             item_name = parts[2].strip()
 
-            conn = sqlite3.connect("bot_data.db")
+            conn = sqlite3.connect("bot_data.db", timeout=10)
             c = conn.cursor()
             c.execute("SELECT price FROM store WHERE item_name LIKE ?", (f"%{item_name}%",))
             store_row = c.fetchone()
@@ -1690,41 +1802,48 @@ def process_bot_commands(message):
                 conn.commit()
                 
                 update_balance(user_id, total_refund)
-                bot.reply_to(message, f"💰 **تم البيع بنجاح!**\nقمت ببيع **{count} {item_name}** واسترددت **{total_refund}** ليرة وهمية! 🎉", parse_mode="Markdown")
+                bot.reply_to(message, f"💰 **تم البيع بنجاح!**\nقمت ببيع **{count} {item_name}** واسترددت **{total_refund:,}** ليرة وهمية! 🎉", parse_mode="Markdown")
             else:
                 bot.reply_to(message, f"❌ لا تملك هذا العدد ({count}) من ({item_name}) لبيعه!")
             conn.close()
             return
 
+    # شراء آمن ومضاد للتجميد (محمي بالكامل)
     if text.startswith("شراء"):
         parts = text.split(maxsplit=2)
         if len(parts) == 3 and parts[1].isdigit():
             count = int(parts[1])
             item_name = parts[2].strip()
             
-            conn = sqlite3.connect("bot_data.db")
-            c = conn.cursor()
-            c.execute("SELECT item_name, price FROM store WHERE item_name LIKE ?", (f"%{item_name}%",))
-            price_row = c.fetchone()
-            
-            if price_row:
-                real_item_name = price_row[0]
-                total_price = price_row[1] * count
-                bal = get_balance(user_id)
-                if bal >= total_price:
-                    update_balance(user_id, -total_price)
-                    c.execute("INSERT INTO inventory (user_id, item_name, quantity) VALUES (?, ?, ?) ON CONFLICT(user_id, item_name) DO UPDATE SET quantity = quantity + ?", (user_id, real_item_name, count, count))
-                    conn.commit()
-                    bot.reply_to(message, f"✅ تم شراء {count} {real_item_name} بنجاح!")
+            conn = None
+            try:
+                conn = sqlite3.connect("bot_data.db", timeout=10)
+                c = conn.cursor()
+                c.execute("SELECT item_name, price FROM store WHERE item_name LIKE ?", (f"%{item_name}%",))
+                price_row = c.fetchone()
+                
+                if price_row:
+                    real_item_name = price_row[0]
+                    total_price = price_row[1] * count
+                    bal = get_balance(user_id)
+                    if bal >= total_price:
+                        update_balance(user_id, -total_price)
+                        c.execute("INSERT INTO inventory (user_id, item_name, quantity) VALUES (?, ?, ?) ON CONFLICT(user_id, item_name) DO UPDATE SET quantity = quantity + ?", (user_id, real_item_name, count, count))
+                        conn.commit()
+                        bot.reply_to(message, f"✅ تم شراء {count} ({real_item_name}) بنجاح بمبلغ {total_price:,} ليرة!")
+                    else:
+                        bot.reply_to(message, "❌ رصيدك غير كافي لإتمام الشراء!")
                 else:
-                    bot.reply_to(message, "❌ رصيدك غير كافي!")
-            else:
-                bot.reply_to(message, "❌ هذا الصنف غير موجود بالمتجر!")
-            conn.close()
+                    bot.reply_to(message, "❌ هذا الصنف غير موجود بالمتجر!")
+            except Exception as e:
+                bot.reply_to(message, f"❌ حدث خطأ أثناء عملية الشراء: {e}")
+            finally:
+                if conn:
+                    conn.close()
         return
 
     if text in ["خمن المسلسل", "لعبة خمن المسلسل", "مسلسلات"]:
-        conn = sqlite3.connect("bot_data.db")
+        conn = sqlite3.connect("bot_data.db", timeout=10)
         c = conn.cursor()
         c.execute("SELECT question, answer FROM series_questions ORDER BY RANDOM() LIMIT 1")
         row = c.fetchone()
@@ -1741,7 +1860,7 @@ def process_bot_commands(message):
         return
 
     if text == "قرض":
-        conn = sqlite3.connect("bot_data.db")
+        conn = sqlite3.connect("bot_data.db", timeout=10)
         c = conn.cursor()
         c.execute("SELECT amount FROM loans WHERE user_id = ?", (user_id,))
         row = c.fetchone()
@@ -1761,7 +1880,7 @@ def process_bot_commands(message):
         if message.reply_to_message and text == "دفع دينو":
             target_id = message.reply_to_message.from_user.id
 
-        conn = sqlite3.connect("bot_data.db")
+        conn = sqlite3.connect("bot_data.db", timeout=10)
         c = conn.cursor()
         c.execute("SELECT amount FROM loans WHERE user_id = ?", (target_id,))
         row = c.fetchone()
@@ -1795,7 +1914,7 @@ def process_bot_commands(message):
             return
 
         current_time = int(time.time())
-        conn = sqlite3.connect("bot_data.db")
+        conn = sqlite3.connect("bot_data.db", timeout=10)
         c = conn.cursor()
         c.execute("SELECT last_steal FROM steal_cooldowns WHERE user_id = ?", (user_id,))
         row = c.fetchone()
@@ -1831,7 +1950,7 @@ def process_bot_commands(message):
     # لعبة الاستثمار (محدثة: 60% ربح، 40% خسارة)
     if text.startswith("استثمار"):
         current_time = int(time.time())
-        conn = sqlite3.connect("bot_data.db")
+        conn = sqlite3.connect("bot_data.db", timeout=10)
         c = conn.cursor()
         c.execute("SELECT last_invest FROM invest_cooldowns WHERE user_id = ?", (user_id,))
         row = c.fetchone()
@@ -1895,24 +2014,24 @@ def process_bot_commands(message):
 
     if text == "مصرياتي":
         bal = get_balance(user_id)
-        bot.reply_to(message, f"💰 معك حالياً: {bal} ليرة وهمية.")
+        bot.reply_to(message, f"💰 معك حالياً: {bal:,} ليرة وهمية.")
         return
 
     if text in ["المتجر"]:
-        conn = sqlite3.connect("bot_data.db")
+        conn = sqlite3.connect("bot_data.db", timeout=10)
         c = conn.cursor()
         c.execute("SELECT item_name, price FROM store")
         items = c.fetchall()
         conn.close()
         msg_text = "🛍 **قائمة المشتريات المتوفرة:**\n\n"
         for name, price in items:
-            msg_text += f"• {name} 👈 {price} ليرة\n"
-        msg_text += "\nللشراء ارسل: `شراء 1 شاورما` مثلاً"
+            msg_text += f"• {name} 👈 {price:,} ليرة\n"
+        msg_text += "\nللشراء ارسل: `شراء 1 شاورما` أو `شراء 1 بيت` مثلاً"
         bot.send_message(chat_id, msg_text, parse_mode="Markdown")
         return
 
     if text == "املاكي":
-        conn = sqlite3.connect("bot_data.db")
+        conn = sqlite3.connect("bot_data.db", timeout=10)
         c = conn.cursor()
         c.execute("SELECT item_name, quantity FROM inventory WHERE user_id = ? AND quantity > 0", (user_id,))
         items = c.fetchall()
@@ -1925,7 +2044,7 @@ def process_bot_commands(message):
         return
 
     if text == "اسالني":
-        conn = sqlite3.connect("bot_data.db")
+        conn = sqlite3.connect("bot_data.db", timeout=10)
         c = conn.cursor()
         c.execute("SELECT question FROM questions ORDER BY RANDOM() LIMIT 1")
         row = c.fetchone()
@@ -1943,6 +2062,7 @@ def send_games_menu(chat_id):
         types.InlineKeyboardButton("🎮 لعبة XO", callback_data="game_xo"),
         types.InlineKeyboardButton("⚔️ مين كفو", callback_data="game_kafo"),
         types.InlineKeyboardButton("⚡ مين أسرع", callback_data="game_speed"),
+        types.InlineKeyboardButton("🎰 ضربة حظ", callback_data="game_luck"),
         types.InlineKeyboardButton("🧩 حزرني", callback_data="game_riddle"),
         types.InlineKeyboardButton("🔪 القاتل", callback_data="game_crime"),
         types.InlineKeyboardButton("📺 خمن المسلسل", callback_data="game_series"),
@@ -1953,7 +2073,7 @@ def send_games_menu(chat_id):
     bot.send_message(chat_id, "🎲 **قائمة الألعاب والتحديات التفاعلية:**", reply_markup=markup, parse_mode="Markdown")
 
 def start_riddle_game(chat_id):
-    conn = sqlite3.connect("bot_data.db")
+    conn = sqlite3.connect("bot_data.db", timeout=10)
     c = conn.cursor()
     c.execute("SELECT question, answer FROM riddles ORDER BY RANDOM() LIMIT 1")
     row = c.fetchone()
@@ -1965,7 +2085,7 @@ def start_riddle_game(chat_id):
         bot.send_message(chat_id, "لا توجد حزازير مضافة بعد.")
 
 def start_crime_game(chat_id):
-    conn = sqlite3.connect("bot_data.db")
+    conn = sqlite3.connect("bot_data.db", timeout=10)
     c = conn.cursor()
     c.execute("SELECT id, story, killer, suspects FROM crime_stories ORDER BY RANDOM() LIMIT 1")
     row = c.fetchone()
@@ -1989,6 +2109,8 @@ def handle_games_callbacks(call):
         bot.send_message(chat_id, f"🎮 لعبة XO جديدة ومجانية بالكامل!\nأنشأ اللعبة: {call.from_user.first_name}\n🎁 الرابح يحصل على 100 ليرة!", reply_markup=get_xo_keyboard(None, call.from_user.id, call.from_user.first_name))
     elif action == "kafo":
         bot.send_message(chat_id, "⚔️ لبدء لعبة مين كفو، أرسل كلمة **مين كفو** في المجموعة!")
+    elif action == "luck":
+        bot.send_message(chat_id, "🎰 لبدء لعبة ضربة حظ، أرسل كلمة **ضربة حظ** في المجموعة (سعر المشاركة 1000 ليرة).")
     elif action == "speed":
         speed_pool = ["فرفوش", "شاورما", "متة", "123", "🔥", "سوري", "تليجرام", "999", "😂", "برغر", "قشطة", "ليرة", "سلطان", "ملك", "بندورة"]
         target_word = random.choice(speed_pool)
@@ -1999,7 +2121,7 @@ def handle_games_callbacks(call):
     elif action == "crime":
         start_crime_game(chat_id)
     elif action == "series":
-        conn = sqlite3.connect("bot_data.db")
+        conn = sqlite3.connect("bot_data.db", timeout=10)
         c = conn.cursor()
         c.execute("SELECT question, answer FROM series_questions ORDER BY RANDOM() LIMIT 1")
         row = c.fetchone()
@@ -2175,7 +2297,7 @@ def handle_admin_callbacks(call):
         bot.send_message(chat_id, "👥 **أرسل الرسالة الآن (نص، صورة، فيديو، إلخ) للإذاعة لجميع المجموعات:**", parse_mode="Markdown")
 
     elif data == "admin_select_group_msg":
-        conn = sqlite3.connect("bot_data.db")
+        conn = sqlite3.connect("bot_data.db", timeout=10)
         c = conn.cursor()
         c.execute("SELECT chat_id, title FROM groups")
         groups = c.fetchall()
@@ -2193,7 +2315,7 @@ def handle_admin_callbacks(call):
 
     elif data.startswith("admin_send_msg_grp_"):
         target_g_id = int(data.replace("admin_send_msg_grp_", ""))
-        conn = sqlite3.connect("bot_data.db")
+        conn = sqlite3.connect("bot_data.db", timeout=10)
         c = conn.cursor()
         c.execute("SELECT title FROM groups WHERE chat_id = ?", (target_g_id,))
         row = c.fetchone()
@@ -2212,7 +2334,7 @@ def handle_admin_callbacks(call):
         bot.send_message(chat_id, "✏️ **أرسل الكلمة المفتاحية التي تريد حذف جميع ردودها المخصصة:**", parse_mode="Markdown")
 
     elif data == "admin_list_replies":
-        conn = sqlite3.connect("bot_data.db")
+        conn = sqlite3.connect("bot_data.db", timeout=10)
         c = conn.cursor()
         c.execute("SELECT keyword, media_type FROM custom_replies")
         rows = c.fetchall()
@@ -2231,7 +2353,7 @@ def handle_admin_callbacks(call):
         bot.send_message(chat_id, "🛒 **أرسل اسم الصنف الجديد الذي تريد إضافته للمتجر:**", parse_mode="Markdown")
 
     elif data == "admin_mute_group_list":
-        conn = sqlite3.connect("bot_data.db")
+        conn = sqlite3.connect("bot_data.db", timeout=10)
         c = conn.cursor()
         c.execute("SELECT chat_id, title FROM groups")
         groups = c.fetchall()
@@ -2252,7 +2374,7 @@ def handle_admin_callbacks(call):
 
     elif data.startswith("admin_toggle_mute_"):
         target_g_id = int(data.replace("admin_toggle_mute_", ""))
-        conn = sqlite3.connect("bot_data.db")
+        conn = sqlite3.connect("bot_data.db", timeout=10)
         c = conn.cursor()
         c.execute("SELECT 1 FROM muted_groups WHERE chat_id = ?", (target_g_id,))
         if c.fetchone():
@@ -2285,7 +2407,7 @@ def handle_admin_callbacks(call):
             pass
 
     elif data == "admin_leave_group_list":
-        conn = sqlite3.connect("bot_data.db")
+        conn = sqlite3.connect("bot_data.db", timeout=10)
         c = conn.cursor()
         c.execute("SELECT chat_id, title FROM groups")
         groups = c.fetchall()
@@ -2303,7 +2425,7 @@ def handle_admin_callbacks(call):
 
     elif data.startswith("admin_confirm_leave_"):
         target_g_id = int(data.replace("admin_confirm_leave_", ""))
-        conn = sqlite3.connect("bot_data.db")
+        conn = sqlite3.connect("bot_data.db", timeout=10)
         c = conn.cursor()
         c.execute("SELECT title FROM groups WHERE chat_id = ?", (target_g_id,))
         row = c.fetchone()
@@ -2319,7 +2441,7 @@ def handle_admin_callbacks(call):
 
     elif data.startswith("admin_do_leave_"):
         target_g_id = int(data.replace("admin_do_leave_", ""))
-        conn = sqlite3.connect("bot_data.db")
+        conn = sqlite3.connect("bot_data.db", timeout=10)
         c = conn.cursor()
         c.execute("SELECT title FROM groups WHERE chat_id = ?", (target_g_id,))
         row = c.fetchone()
@@ -2343,7 +2465,7 @@ def handle_admin_callbacks(call):
         bot.send_message(chat_id, "✏️ **أرسل آيدي (ID) المشرف المراد تنزيله:**", parse_mode="Markdown")
 
     elif data == "admin_list_admins":
-        conn = sqlite3.connect("bot_data.db")
+        conn = sqlite3.connect("bot_data.db", timeout=10)
         c = conn.cursor()
         c.execute("SELECT user_id FROM admins")
         admins = [r[0] for r in c.fetchall()]
@@ -2355,7 +2477,7 @@ def handle_admin_callbacks(call):
         bot.send_message(chat_id, msg, parse_mode="Markdown")
 
     elif data == "admin_stats":
-        conn = sqlite3.connect("bot_data.db")
+        conn = sqlite3.connect("bot_data.db", timeout=10)
         c = conn.cursor()
         c.execute("SELECT COUNT(*) FROM users")
         u_cnt = c.fetchone()[0]
@@ -2376,12 +2498,12 @@ def handle_admin_callbacks(call):
             f"💬 عدد الردود المخصصة: `{r_cnt}`\n"
             f"🔇 المجموعات المكتومة: `{m_cnt}`\n"
             f"🤖 مجموعات جيمني: `{ge_cnt}`\n"
-            f"🎮 الألعاب المفتوحة حالياً: `{len(xo_games) + len(min_kafo_games) + len(active_riddles) + len(active_speed_games)}`"
+            f"🎮 الألعاب المفتوحة حالياً: `{len(xo_games) + len(min_kafo_games) + len(lucky_games) + len(active_riddles) + len(active_speed_games)}`"
         )
         bot.send_message(chat_id, msg, parse_mode="Markdown")
 
     elif data == "admin_gemini_groups":
-        conn = sqlite3.connect("bot_data.db")
+        conn = sqlite3.connect("bot_data.db", timeout=10)
         c = conn.cursor()
         c.execute("SELECT chat_id, title FROM groups")
         groups = c.fetchall()
@@ -2402,7 +2524,7 @@ def handle_admin_callbacks(call):
 
     elif data.startswith("admin_toggle_gemini_"):
         target_g_id = int(data.replace("admin_toggle_gemini_", ""))
-        conn = sqlite3.connect("bot_data.db")
+        conn = sqlite3.connect("bot_data.db", timeout=10)
         c = conn.cursor()
         c.execute("SELECT 1 FROM gemini_groups WHERE chat_id = ?", (target_g_id,))
         if c.fetchone():
@@ -2439,6 +2561,7 @@ def handle_admin_callbacks(call):
             f"🎮 **سجلات الألعاب النشطة:**\n\n"
             f"• ألعاب XO الجارية: `{len(xo_games)}`\n"
             f"• تحديات مين كفو: `{len(min_kafo_games)}`\n"
+            f"• ألعاب ضربة حظ: `{len(lucky_games)}`\n"
             f"• تحديات مين أسرع: `{len(active_speed_games)}`\n"
             f"• الحزازير النشطة: `{len(active_riddles)}`\n"
             f"• قضايا القاتل: `{len(active_crime_games)}`\n"
@@ -2451,6 +2574,7 @@ def handle_admin_callbacks(call):
     elif data == "admin_reset_games":
         xo_games.clear()
         min_kafo_games.clear()
+        lucky_games.clear()
         active_speed_games.clear()
         active_riddles.clear()
         active_crime_games.clear()
@@ -2477,7 +2601,7 @@ def handle_admin_inputs(message):
     if stage == 'broadcast_all':
         del admin_states[user_id]
         bot.reply_to(message, "📢 جاري بدء الإذاعة الشاملة للجميع...")
-        conn = sqlite3.connect("bot_data.db")
+        conn = sqlite3.connect("bot_data.db", timeout=10)
         c = conn.cursor()
         c.execute("SELECT user_id FROM users")
         u_ids = [row[0] for row in c.fetchall()]
@@ -2499,7 +2623,7 @@ def handle_admin_inputs(message):
     elif stage == 'broadcast_groups':
         del admin_states[user_id]
         bot.reply_to(message, "👥 جاري بدء الإذاعة للمجموعات...")
-        conn = sqlite3.connect("bot_data.db")
+        conn = sqlite3.connect("bot_data.db", timeout=10)
         c = conn.cursor()
         c.execute("SELECT chat_id FROM groups")
         g_ids = [row[0] for row in c.fetchall()]
@@ -2536,12 +2660,12 @@ def handle_admin_inputs(message):
             price = int(text)
             item_name = state.get('item_name')
             del admin_states[user_id]
-            conn = sqlite3.connect("bot_data.db")
+            conn = sqlite3.connect("bot_data.db", timeout=10)
             c = conn.cursor()
             c.execute("INSERT OR REPLACE INTO store (item_name, price) VALUES (?, ?)", (item_name, price))
             conn.commit()
             conn.close()
-            bot.reply_to(message, f"✅ تم إضافة الصنف ({item_name}) إلى المتجر بسعر `{price}` ليرة بنجاح! 🛍️", parse_mode="Markdown")
+            bot.reply_to(message, f"✅ تم إضافة الصنف ({item_name}) إلى المتجر بسعر `{price:,}` ليرة بنجاح! 🛍️", parse_mode="Markdown")
         else:
             bot.reply_to(message, "❌ يرجى إرسال السعر كأرقام صحيحة فقط.")
 
@@ -2595,7 +2719,7 @@ def handle_admin_inputs(message):
             resp_text = message.caption or ''
             file_id = message.voice.file_id
 
-        conn = sqlite3.connect("bot_data.db")
+        conn = sqlite3.connect("bot_data.db", timeout=10)
         c = conn.cursor()
         c.execute("INSERT INTO custom_replies (keyword, response, media_type, file_id) VALUES (?, ?, ?, ?)", (keyword, resp_text, media_type, file_id))
         conn.commit()
@@ -2612,7 +2736,7 @@ def handle_admin_inputs(message):
 
     elif stage == 'wait_del_reply_keyword':
         del admin_states[user_id]
-        conn = sqlite3.connect("bot_data.db")
+        conn = sqlite3.connect("bot_data.db", timeout=10)
         c = conn.cursor()
         c.execute("DELETE FROM custom_replies WHERE keyword = ?", (text,))
         deleted = c.rowcount
@@ -2627,7 +2751,7 @@ def handle_admin_inputs(message):
         del admin_states[user_id]
         if text.isdigit():
             new_id = int(text)
-            conn = sqlite3.connect("bot_data.db")
+            conn = sqlite3.connect("bot_data.db", timeout=10)
             c = conn.cursor()
             c.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (new_id,))
             conn.commit()
@@ -2640,7 +2764,7 @@ def handle_admin_inputs(message):
         del admin_states[user_id]
         if text.isdigit():
             target_id = int(text)
-            conn = sqlite3.connect("bot_data.db")
+            conn = sqlite3.connect("bot_data.db", timeout=10)
             c = conn.cursor()
             c.execute("DELETE FROM admins WHERE user_id = ?", (target_id,))
             conn.commit()
