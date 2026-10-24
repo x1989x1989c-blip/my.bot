@@ -29,6 +29,19 @@ farfoosh_challenge_users = {} # user_id -> bool
 active_speed_games = {}     # chat_id -> {'target': str, 'errors': {user_id: count}}
 lucky_games = {}            # chat_id -> game dict (لعبة ضربة حظ)
 
+# ==================== تنظيف ملفات الذاكرة والمؤقتة ====================
+def cleanup_downloads_folder():
+    if os.path.exists('downloads'):
+        for f in os.listdir('downloads'):
+            fp = os.path.join('downloads', f)
+            try:
+                if os.path.isfile(fp):
+                    os.remove(fp)
+            except Exception:
+                pass
+
+cleanup_downloads_folder()
+
 # ==================== نظام الحذف المتطور والآمن ====================
 def safe_delete_message(chat_id, message_id):
     """نظام حذف متطور ومحمي لعدم توقف البوت أو تجميده"""
@@ -732,7 +745,7 @@ def generate_image_pollinations(prompt):
             continue
     return None
 
-# ==================== خدمات تحميل الصوتيات والفيديو (محدثة لتجاوز حظر يوتيوب) ====================
+# ==================== خدمات تحميل الصوتيات والفيديو (محدثة لتجنيب نفاد الذاكرة والتنظيف الفوري) ====================
 def download_and_send_audio(chat_id, query, message_id):
     clean_q = clean_syrian_search_query(query)
     status_msg = bot.send_message(chat_id, f"🔍 **جاري البحث وتحميل الصوت فوراً...**", parse_mode="Markdown")
@@ -743,7 +756,7 @@ def download_and_send_audio(chat_id, query, message_id):
     output_template = f"{file_prefix}.%(ext)s"
 
     ydl_opts = {
-        'format': 'bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio/best',
+        'format': 'bestaudio[filesize<15M]/bestaudio[ext=m4a]/bestaudio/best',
         'outtmpl': output_template,
         'noplaylist': True,
         'quiet': True,
@@ -751,38 +764,41 @@ def download_and_send_audio(chat_id, query, message_id):
         'nocheckcertificate': True,
         'geo_bypass': True,
         'cachedir': False,
-        'extractor_args': {'youtube': {'player_client': ['android']}}, # تم إضافة هذا الخيار لتجاوز حظر يوتيوب للروبوتات دون كوكيز
+        'extractor_args': {'youtube': {'player_client': ['android']}}, # تجاوز حظر يوتيوب للروبوتات
     }
 
     search_targets = [clean_q] if clean_q.startswith("http") else [f"ytsearch1:{clean_q}", f"scsearch1:{clean_q}"]
+    downloaded_file = None
 
-    for target in search_targets:
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(target, download=True)
-                if info:
-                    video = info['entries'][0] if 'entries' in info and len(info['entries']) > 0 else info
-                    title = video.get('title', 'صوتية يوتيوب')
-                    uploader = video.get('uploader', 'فرفوش')
+    try:
+        for target in search_targets:
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(target, download=True)
+                    if info:
+                        video = info['entries'][0] if 'entries' in info and len(info['entries']) > 0 else info
+                        title = video.get('title', 'صوتية يوتيوب')
+                        uploader = video.get('uploader', 'فرفوش')
 
-                    downloaded_file = None
-                    for ext in ['m4a', 'mp3', 'webm', 'opus', 'mp4']:
-                        possible_path = f"{file_prefix}.{ext}"
-                        if os.path.exists(possible_path):
-                            downloaded_file = possible_path
-                            break
+                        for ext in ['m4a', 'mp3', 'webm', 'opus', 'mp4']:
+                            possible_path = f"{file_prefix}.{ext}"
+                            if os.path.exists(possible_path):
+                                downloaded_file = possible_path
+                                break
 
-                    if downloaded_file and os.path.exists(downloaded_file):
-                        with open(downloaded_file, 'rb') as audio:
-                            bot.send_audio(chat_id, audio, title=title, performer=uploader, reply_to_message_id=message_id)
-                        safe_delete_message(chat_id, status_msg.message_id)
-                        try:
-                            os.remove(downloaded_file)
-                        except:
-                            pass
-                        return
-        except Exception:
-            continue
+                        if downloaded_file and os.path.exists(downloaded_file):
+                            with open(downloaded_file, 'rb') as audio:
+                                bot.send_audio(chat_id, audio, title=title, performer=uploader, reply_to_message_id=message_id)
+                            safe_delete_message(chat_id, status_msg.message_id)
+                            return
+            except Exception:
+                continue
+    finally:
+        if downloaded_file and os.path.exists(downloaded_file):
+            try:
+                os.remove(downloaded_file)
+            except Exception:
+                pass
 
     bot.edit_message_text("❌ تعذر تحميل الصوت حالياً، تأكد من صحة الرابط أو اسم الأغنية.", chat_id, status_msg.message_id)
 
@@ -796,7 +812,7 @@ def download_and_send_video(chat_id, query, message_id):
     output_template = f"{file_prefix}.%(ext)s"
 
     ydl_opts = {
-        'format': 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best[filesize<45M]',
+        'format': 'bestvideo[height<=360][ext=mp4]+bestaudio[ext=m4a]/best[height<=360][ext=mp4]/best[filesize<35M]',
         'outtmpl': output_template,
         'noplaylist': True,
         'quiet': True,
@@ -804,10 +820,11 @@ def download_and_send_video(chat_id, query, message_id):
         'nocheckcertificate': True,
         'geo_bypass': True,
         'cachedir': False,
-        'extractor_args': {'youtube': {'player_client': ['android']}}, # تم إضافة هذا الخيار لتجاوز حظر يوتيوب للروبوتات دون كوكيز
+        'extractor_args': {'youtube': {'player_client': ['android']}}, # تجاوز حظر يوتيوب للروبوتات
     }
 
     target = clean_q if clean_q.startswith("http") else f"ytsearch1:{clean_q}"
+    downloaded_file = None
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -816,7 +833,6 @@ def download_and_send_video(chat_id, query, message_id):
                 video_info = info['entries'][0] if 'entries' in info and len(info['entries']) > 0 else info
                 title = video_info.get('title', clean_q) if video_info else clean_q
 
-                downloaded_file = None
                 for ext in ['mp4', 'mkv', 'webm']:
                     possible_path = f"{file_prefix}.{ext}"
                     if os.path.exists(possible_path):
@@ -827,13 +843,15 @@ def download_and_send_video(chat_id, query, message_id):
                     with open(downloaded_file, 'rb') as video_file:
                         bot.send_video(chat_id, video_file, caption=f"🎥 **{title}**", reply_to_message_id=message_id, parse_mode="Markdown")
                     safe_delete_message(chat_id, status_msg.message_id)
-                    try:
-                        os.remove(downloaded_file)
-                    except:
-                        pass
                     return
     except Exception:
         pass
+    finally:
+        if downloaded_file and os.path.exists(downloaded_file):
+            try:
+                os.remove(downloaded_file)
+            except Exception:
+                pass
 
     bot.edit_message_text("❌ تعذر تحميل الفيديو، تأكد من صحة الرابط أو الكلمات الدلالية.", chat_id, status_msg.message_id)
 
