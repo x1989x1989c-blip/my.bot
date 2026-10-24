@@ -279,7 +279,7 @@ def init_db():
         "ما هو الاختبار الأكثر صعوبة الذي مر به ضميرك وشخصيتك؟",
         "ما هو الموقف الأكثر إحراجاً الذي تعرضت له أمام شخص تحبه وتتمناه؟",
         "هل سبق لك أن قرأت محادثات شخص آخر بالخفية ودون علمه المسبق؟",
-        "ما هي الكذبة الكبيرة التي ما زلت تخفيها عن عائلتك حتى الآن؟",
+        "ما هي الكذبة كبيرة التي ما زلت تخفيها عن عائلتك حتى الآن؟",
         "هل سبق لك أن تظاهرت بالنوم للهروب من حديث محرج مع أحدهم؟",
         "ما هي العادة الغريبة أو المحرجة جداً التي تفعلها عندما تكون بمفردك؟",
         "ما هو الشيء الذي اشتريته بسعر مرتفع جداً وكان يمثل قمة الغباء؟",
@@ -732,7 +732,7 @@ def generate_image_pollinations(prompt):
             continue
     return None
 
-# ==================== خدمات تحميل الصوتيات والفيديو ====================
+# ==================== خدمات تحميل الصوتيات والفيديو (محدثة لتجاوز حظر يوتيوب) ====================
 def download_and_send_audio(chat_id, query, message_id):
     clean_q = clean_syrian_search_query(query)
     status_msg = bot.send_message(chat_id, f"🔍 **جاري البحث وتحميل الصوت فوراً...**", parse_mode="Markdown")
@@ -751,6 +751,7 @@ def download_and_send_audio(chat_id, query, message_id):
         'nocheckcertificate': True,
         'geo_bypass': True,
         'cachedir': False,
+        'extractor_args': {'youtube': {'player_client': ['android']}}, # تم إضافة هذا الخيار لتجاوز حظر يوتيوب للروبوتات دون كوكيز
     }
 
     search_targets = [clean_q] if clean_q.startswith("http") else [f"ytsearch1:{clean_q}", f"scsearch1:{clean_q}"]
@@ -803,6 +804,7 @@ def download_and_send_video(chat_id, query, message_id):
         'nocheckcertificate': True,
         'geo_bypass': True,
         'cachedir': False,
+        'extractor_args': {'youtube': {'player_client': ['android']}}, # تم إضافة هذا الخيار لتجاوز حظر يوتيوب للروبوتات دون كوكيز
     }
 
     target = clean_q if clean_q.startswith("http") else f"ytsearch1:{clean_q}"
